@@ -1,7 +1,16 @@
 # DayCrew — MVP Architecture (v0.1)
 
-**Status:** APPROVED by Product Owner 2026-09-09 (with changes, incorporated below). M0 proceeds.
-**Author:** 🏗️ Michael – Lead Architect · **Date:** 2026-09-09 · **Rev:** 2
+**Status:** APPROVED by Product Owner 2026-09-09 (with changes, incorporated below). M0 in progress.
+**Author:** 🏗️ Michael – Lead Architect · **Date:** 2026-09-09 · **Rev:** 3
+
+### Changelog — Rev 3 (contract rulings from D1 review)
+- **One event channel.** Removed `EngineEvent` / `RunContext.emit`. Adapters speak only
+  through `AgentHandle.events` (`AgentEvent`); core derives lifecycle/audit from it.
+- **`events.jsonl` payloads defined** per `kind` (§4.3), envelope gains `id` + `seq`.
+- **`ApprovalRequest.risk`** vocabulary = `low | medium | high` with a `DEFAULT_RISK`
+  map by `actionClass` (`docs/PROVIDER-ADAPTERS.md §2`). Advisory only.
+- **`McpServerConfig`** defined (`stdio` | `http`), pass-through for MCP-capable adapters.
+- **Team Pack `categories`** example fixed to the §6 vocabulary (`software-development`).
 
 ### Changelog — Rev 2 (Product Owner decisions)
 1. Tech stack approved as-is. Keep it simple; no extra infra without justification.
@@ -169,17 +178,42 @@ All entities are zod schemas in `packages/shared`. Persisted under a project's
 - **Message** — `{ id, runId, from, to, act, subject, body, conversation?, inReplyTo?, createdAt }`
   - `act`: `request | inform | propose | query | agree | refuse | done`
   - `to`: agentId | `orchestrator` | `broadcast`
-- **ApprovalRequest** — `{ id, runId, agentId, actionClass, summary, payload, risk, status, createdAt, decidedAt?, decidedBy?, decision?, feedback? }`
+- **ApprovalRequest** — `{ id, runId, agentId, actionClass, risk, summary, payload, status, createdAt, decidedAt?, decidedBy?, decision?, feedback? }`
   - `actionClass`: `shell.exec | fs.write | fs.delete | net.request | spend | git.push | external.publish`
+  - `risk`: `low | medium | high` — from the adapter's hint, else `DEFAULT_RISK[actionClass]`
+    (see `docs/PROVIDER-ADAPTERS.md §2`). Advisory: it drives UI emphasis and policy
+    rules, never auto-approval.
   - `status`: `pending | approved | denied | expired`
-- **Event** (JSONL) — `{ ts, runId, kind, ...payload }`
-  - kinds: `run.created`, `run.status`, `agent.spawned`, `agent.status`, `agent.text`,
-    `task.created`, `task.updated`, `message.sent`, `approval.requested`,
-    `approval.decided`, `artifact.created`, `usage.updated`, `guardrail.tripped`, `run.ended`
+  - `decidedBy`: `"human"` (MVP has no other decider)
 - **Artifact** — `{ id, runId, path, kind, producedBy, createdAt, description }`
 
+### Event log (`events.jsonl`)
+
+Envelope: `{ id, seq, ts, runId, kind, payload }` — `seq` is a monotonic integer per
+run (ordering + replay cursor). Payload by `kind`:
+
+| kind | payload |
+|---|---|
+| `run.created` | `{ objective, mode, teamId, workspace, limits }` |
+| `run.status` | `{ from, to }` |
+| `agent.spawned` | `{ agentId, memberId, provider, model }` |
+| `agent.status` | `{ agentId, from, to }` |
+| `agent.text` | `{ agentId, text }` |
+| `agent.tool` | `{ agentId, callId, name, phase: "call" \| "result", isError? }` |
+| `task.created` | `{ taskId, title, assignee?, createdBy }` |
+| `task.updated` | `{ taskId, changes }` (partial Task) |
+| `message.sent` | `{ messageId, from, to, act, subject }` |
+| `approval.requested` | `{ approvalId, agentId, actionClass, risk, summary }` |
+| `approval.decided` | `{ approvalId, decision, decidedBy, feedback? }` |
+| `artifact.created` | `{ artifactId, path, kind, producedBy }` |
+| `usage.updated` | `{ agentId?, totalUsd, totalTokens, turns }` |
+| `guardrail.tripped` | `{ rule: "maxTurns" \| "maxUsd" \| "maxWallclock" \| "idle" \| "loop", detail }` |
+| `run.ended` | `{ status, summary?, usage }` |
+
 Events are the **single source of truth**; `run.json` / `tasks.json` are projections
-that can be rebuilt by replaying `events.jsonl`.
+rebuildable by replaying `events.jsonl`. Full-text bodies (message body, tool
+input/output, artifact contents) live in their own files, not the event payload —
+events carry ids and one-line summaries only.
 
 ---
 

@@ -44,9 +44,9 @@ description: >
 author: DayCrew                  # name or handle
 license: MIT
 homepage: https://github.com/daycrew/daycrew   # optional
-tags: [engineering, coding, review]
-minDayCrewVersion: 0.1.0         # optional
-categories: [software]           # from a fixed vocabulary (see §6)
+tags: [engineering, coding, review]     # free-form, for search
+minDayCrewVersion: 0.1.0                 # optional
+categories: [software-development]       # 1+ values from the fixed vocabulary in §6
 ```
 
 Validated by the `PackManifest` zod schema in `packages/shared`. Unknown keys are

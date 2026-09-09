@@ -64,17 +64,27 @@ export interface AgentSpec {
   };
 }
 
+/**
+ * MCP server config passed through to adapters where `capabilities.mcp === true`
+ * (claude-code). Adapters without MCP support ignore this field.
+ */
+export type McpServerConfig =
+  | { transport: "stdio"; name: string; command: string;
+      args?: string[]; env?: Record<string, string> }
+  | { transport: "http"; name: string; url: string;
+      headers?: Record<string, string> };
+
 export interface RunContext {
   runId: string;
-  emit(event: EngineEvent): void;   // adapter → core, for lifecycle/telemetry
   logSink: (chunk: string) => void; // raw transcript (core redacts + persists)
   signal: AbortSignal;              // aborted on run cancel
 }
 
+
 export interface AgentHandle {
   /** Deliver a turn: an objective kick-off, a routed message, or approval feedback. */
   send(input: AgentInput): Promise<void>;
-  /** Normalized event stream. Core consumes ONLY this. */
+  /** Normalized event stream. Core consumes ONLY this — there is no second channel. */
   readonly events: AsyncIterable<AgentEvent>;
   interrupt(): Promise<void>;       // stop current turn, keep session
   stop(): Promise<void>;            // end session, free resources
@@ -101,8 +111,8 @@ export type AgentEvent =
   | { type: "tool_call"; id: string; name: string; input: unknown }
   | { type: "tool_result"; id: string; output: unknown; isError?: boolean }
   | { type: "approval_request";
-      actionClass: "shell.exec" | "fs.write" | "fs.delete" | "net.request"
-                 | "spend" | "git.push" | "external.publish";
+      actionClass: ActionClass;
+      risk?: RiskLevel;           // adapter's hint; core fills the default if omitted
       summary: string;            // one line, human-readable
       payload: unknown;           // e.g. { command } or { path } or { url, method }
       nativeId?: string }         // engine's own prompt id, if it has one
@@ -119,7 +129,32 @@ export type AgentEvent =
 export type AgentStatus =
   | "idle" | "thinking" | "acting" | "blocked-on-approval"
   | "waiting-on-dep" | "done" | "error" | "stopped";
+
+export type ActionClass =
+  | "shell.exec" | "fs.write" | "fs.delete" | "net.request"
+  | "spend" | "git.push" | "external.publish";
+
+export type RiskLevel = "low" | "medium" | "high";
+
+/** Default risk when an adapter omits `risk`. Policy/UI may still escalate. */
+export const DEFAULT_RISK: Record<ActionClass, RiskLevel> = {
+  "shell.exec":       "high",
+  "fs.write":         "medium",
+  "fs.delete":        "high",
+  "net.request":      "high",
+  "spend":            "high",
+  "git.push":         "high",
+  "external.publish": "high",
+};
 ```
+
+### Design ruling — one event channel
+
+There is exactly **one** adapter→core channel: `AgentHandle.events` yielding
+`AgentEvent`. There is no separate `EngineEvent` / `RunContext.emit`. Lifecycle,
+telemetry, and audit records are **derived by core** from the `AgentEvent` stream
+plus `AgentHandle` lifecycle (`send` resolves, iterator ends, `status()`). Adapters
+that need to report an out-of-turn failure yield `{ type: "error", fatal: true }`.
 
 ### How task/message events arise
 
