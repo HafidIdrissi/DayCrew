@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+.pnp.*
+.yarn/*
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+coverage/
+
+# DayCrew runtime state (never commit a user's run data / logs)
+.daycrew/state/
+.daycrew/**/logs/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log

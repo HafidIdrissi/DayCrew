@@ -1,0 +1,65 @@
+name: Team Pack submission / proposal
+description: Propose or submit a new Team Pack (a crew definition)
+labels: [team-pack, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Team Packs are **data, not code** — see `docs/TEAM-PACKS.md`. You can submit
+        a pack via PR under `team-packs/community/<id>/`, or publish to npm as
+        `daycrew-team-pack-<id>`. Use this issue to propose one or get feedback first.
+  - type: input
+    id: id
+    attributes:
+      label: Pack id
+      placeholder: "legal-review"
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: User-facing name
+      placeholder: "Legal Review Team"
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - software-development
+        - ecommerce
+        - job-search
+        - academic-research
+        - marketing
+        - cybersecurity
+        - other (propose in description)
+    validations:
+      required: true
+  - type: textarea
+    id: members
+    attributes:
+      label: Members and roles
+      description: List each member, their title, responsibilities, and default engine preference.
+      placeholder: |
+        - Lead (orchestrator): ...
+        - Researcher: ...
+        - Writer: ...
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: How the team works
+      description: How does the Lead decompose and review work? What's the typical objective?
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: Exactly one member is the orchestrator (the Lead)
+        - label: The pack does not require changes to `packages/`
+        - label: A license is stated in `pack.yaml`
+        - label: I ran `daycrew team validate` and it passed (if submitting a PR)
