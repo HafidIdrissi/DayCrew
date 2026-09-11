@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "software-development",
+  "name": "Software Development",
+  "version": "0.1.0",
+  "description": "A focused software team that plans, implements, and reviews changes.",
+  "license": "MIT",
+  "author": "DayCrew contributors"
+}

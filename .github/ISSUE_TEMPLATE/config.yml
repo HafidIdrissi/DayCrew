@@ -1,8 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Security vulnerability
+  - name: Security report
     url: https://github.com/daycrew/daycrew/security/advisories/new
-    about: Report security issues privately — do not open a public issue. See SECURITY.md.
-  - name: Questions & discussion
-    url: https://github.com/daycrew/daycrew/discussions
-    about: Ask questions, share ideas, and discuss design here.
+    about: Report vulnerabilities privately.

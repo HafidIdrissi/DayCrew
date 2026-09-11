@@ -1,62 +1,70 @@
-<h1 align="center">DayCrew</h1>
+# DayCrew
 
-<p align="center">
-  <b>An open-source work operating system.</b><br>
-  Build a team of specialized AI members, give them an objective, and watch them
-  delegate, collaborate, and ship — with you approving anything risky.
-</p>
+DayCrew is an open-source, local-first AI work operating system. Users create a
+Workspace, assemble specialized Teams, give each Team Manager a goal, and review
+only the decisions and work that need human attention.
 
-<p align="center">
-  <i>Status: pre-alpha. Under active construction. Not yet usable.</i>
-</p>
+> Status: M1-M3 functional local MVP core. Workspaces, Teams, deterministic
+> Manager-led work sessions, tasks, and Needs You are available through CLI and API.
 
----
+## Product shape
 
-## What it is
+- A Workspace contains Teams.
+- Every Team has exactly one Manager and zero or more specialist Members.
+- The Manager plans, delegates, coordinates handoffs, and surfaces important items
+  in one **Needs You** inbox.
+- The normal interface has four views: Home, Teams, Tasks, and Office.
+- AI engine and model details stay under Advanced Settings.
 
-DayCrew runs on your machine. You pick a **Team** — a small crew of members with
-defined roles (a Lead, a Developer, a QA engineer, …) — and start a **work session**
-against a goal. The Lead breaks the goal into tasks, hands them to teammates, reviews
-the results, and reports back. Every shell command, file deletion, network call, or
-spend passes through an **approval** you control.
+DayCrew is not a generic chat application. Its core experience is a human-controlled
+team completing visible work through tasks and handoffs.
 
-- **Model-agnostic.** Each team member runs on a pluggable engine: Claude Code,
-  Codex CLI, Gemini CLI, local models. Mix them in one team.
-- **Local-first.** All state is plain JSON/JSONL files you can read, diff, and commit.
-- **Human-in-the-loop.** Risky actions stop and wait for your yes/no, with a full
-  audit trail.
-- **Extensible by design.** Add a **Team Pack** or a **provider adapter** without
-  touching the core engine.
+## Principles
 
-## Use cases
+Local-first · provider-neutral · secure by default · understandable to
+non-technical users · extensible through Team Packs and AI Engine adapters.
 
-Software development · e-commerce · job search · academic research · marketing ·
-cybersecurity — each ships as a first-party Team Pack, and the community can add more.
+## Development
 
-## Quickstart
-
-> Not available yet — the CLI lands with milestone M1. Track progress in
-> [`ROADMAP.md`](./ROADMAP.md).
+Requirements: Node.js 20.19+ and pnpm 10.
 
 ```bash
-# (planned)
-pnpm add -g daycrew
-daycrew init
-daycrew run "add pagination to the products API"
+corepack enable
+pnpm install
+pnpm check
+pnpm dev
 ```
 
-## Architecture
+`pnpm dev` starts the local Fastify API and React application. Create or open a
+Workspace by entering an existing folder's full path in the welcome screen.
+DayCrew remembers this selection in OS-local app config; runtime state lives in
+that folder's `.daycrew/`, independently of the DayCrew installation or command
+working directory. See [Local Workspaces](./docs/WORKSPACES.md) for startup
+overrides, CLI behavior, storage locations, APIs and safety boundaries.
+The MVP mock engine is deterministic and requires no credentials or network access.
 
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — the full design
-- [`docs/TEAM-PACKS.md`](./docs/TEAM-PACKS.md) — how Teams are defined (extension point)
-- [`docs/PROVIDER-ADAPTERS.md`](./docs/PROVIDER-ADAPTERS.md) — how engines plug in (extension point)
+Claude Code is the first production-ready writable AI Engine. Every action it takes is
+gated by DayCrew before it runs, and a denial prevents the action. Detect it with
+`node packages/cli/dist/bin.js provider detect claude-code` after building the CLI, and
+read the [Claude Code trust boundary](./docs/CLAUDE-ADAPTER.md) before enabling writes.
 
-## Contributing
+Codex is available as an explicitly enabled read-only preview. Detect it with
+`node packages/cli/dist/bin.js provider detect codex` after building the CLI. Read
+the [Codex trust boundary](./docs/CODEX-ADAPTER.md) before enabling it.
 
-DayCrew is built in the open and designed to be contributor-friendly from day one.
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md),
-and [`SECURITY.md`](./SECURITY.md).
+## Packages
 
-## License
+- `packages/shared` — runtime schemas and provider-neutral contracts
+- `packages/core` — persisted Workspace, Team, work-session, task, and human-control logic
+- `packages/providers` — AI Engine adapters and deterministic mock
+- `packages/cli` — command-line entry point
+- `packages/server` — local Fastify API
+- `packages/web` — React/Vite UI scaffold
 
-[MIT](./LICENSE)
+See [Product](./docs/PRODUCT.md), [Architecture](./docs/ARCHITECTURE.md), and
+[MVP scope](./docs/MVP.md).
+
+## Contributing and security
+
+Read [CONTRIBUTING.md](./CONTRIBUTING.md), [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md),
+and [SECURITY.md](./SECURITY.md). DayCrew is licensed under the [MIT License](./LICENSE).

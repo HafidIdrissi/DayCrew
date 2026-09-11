@@ -1,24 +1,17 @@
-# dependencies
 node_modules/
-.pnp.*
-.yarn/*
-
-# build output
 dist/
-build/
-*.tsbuildinfo
 coverage/
+*.tsbuildinfo
 
-# DayCrew runtime state (never commit a user's run data / logs)
-.daycrew/state/
-.daycrew/**/logs/
-
-# env / secrets
+# Local DayCrew state and secrets
+# Workspace runtime state lives in a .daycrew/ directory inside the selected
+# Workspace root. It is never source, so ignore it at any depth in this repo.
+.daycrew/
 .env
 .env.*
 !.env.example
 
-# editor / OS
+# Editors and operating systems
 .DS_Store
 .idea/
 .vscode/*

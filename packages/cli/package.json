@@ -1,0 +1,21 @@
+{
+  "name": "@daycrew/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "daycrew": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/bin.js"
+  },
+  "dependencies": {
+    "@daycrew/core": "workspace:*",
+    "@daycrew/providers": "workspace:*",
+    "@daycrew/shared": "workspace:*"
+  }
+}

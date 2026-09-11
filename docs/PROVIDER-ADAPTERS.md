@@ -1,197 +1,65 @@
-# DayCrew Provider Adapters
+# AI Engine Adapter Contract
 
-**Status:** SPEC v0.1 — the engine extension contract. Interface lands in M0; first
-implementations M3 (`claude-code`) and M3.5 (`codex`).
+An adapter lets a Team Member use an AI engine without leaking provider behavior
+into `packages/core`. The TypeScript source of truth is
+`packages/shared/src/provider.ts`.
 
-A **provider adapter** teaches DayCrew to run a team member on a specific engine
-(Claude Code, Codex CLI, Gemini CLI, a local model, …). It is the **only** place
-engine-specific code is allowed. `packages/core` must contain **zero** provider
-names — CI greps for this.
+## Contract
 
-> Adding an engine = one new folder in `packages/providers/` implementing the
-> interface below. No `core` changes, ever.
+Each `ProviderAdapter` has a stable `id`, human-readable `displayName`, declared
+capabilities, a fast `detect()` check, and `startAgent(spec)`. The returned
+`AgentHandle` accepts goals, Member messages, and approval decisions; exposes one
+`AsyncIterable<AgentEvent>`; and supports `interrupt()` and `stop()`.
 
----
+The normalized events are:
 
-## 1. The interface
+- `text`
+- `tool_call`
+- `tool_result`
+- `task_update`
+- `message`
+- `approval_request`
+- `usage`
+- `done`
+- `error`
 
-```ts
-// packages/shared — the contract both core and every adapter import
+Provider-native event names, processes, session tokens, and tool protocols must not
+cross this boundary.
 
-export interface ProviderAdapter {
-  /** stable engine id, kebab-case: "claude-code" | "codex" | "gemini-cli" | "mock" */
-  readonly id: string;
-  readonly displayName: string;
+## Adapter rules
 
-  /** Is the underlying CLI/runtime installed and authenticated on this machine? */
-  detect(): Promise<DetectResult>;
+1. Depend on `@daycrew/shared`, never `@daycrew/core`.
+2. Validate inputs and emit only normalized events.
+3. Run inside the supplied Workspace path and document how confinement is enforced.
+4. Never auto-answer a native permission prompt. Convert it into an
+   `approval_request` and wait for a decision.
+5. Be honest about capability and detection failures.
+6. Do not log credentials, tokens, raw environment values, or unredacted secrets.
+7. Implement the shared conformance tests before being marked production-ready.
 
-  readonly capabilities: ProviderCapabilities;
+An adapter that cannot enforce the required safety boundary must report itself as
+unavailable with a clear reason.
 
-  /** Spawn one team member as a running session. */
-  startAgent(spec: AgentSpec, ctx: RunContext): Promise<AgentHandle>;
-}
+## Claude Code writable adapter
 
-export interface DetectResult {
-  available: boolean;
-  version?: string;
-  reason?: string;            // when unavailable, a human-readable why
-}
+Claude Code exposes a host-controlled `can_use_tool` permission callback that fires
+before a tool runs, so DayCrew bridges it directly into `approval_request` → Needs You →
+allow/deny. Writes are opt-in, Workspace paths are confined by the adapter, MCP is off by
+default, and every failure path denies. It is the first adapter to advertise approval
+support and to be marked production-ready. See
+[Claude Code adapter security](./CLAUDE-ADAPTER.md).
 
-export interface ProviderCapabilities {
-  streaming: boolean;             // emits text incrementally
-  nativeToolUse: boolean;         // the engine runs tools itself
-  nativePermissionPrompts: boolean; // the engine gates risky actions itself
-  resume: boolean;               // sessions can be resumed by id/token
-  mcp: boolean;                  // accepts MCP server configs
-}
+## Codex read-only preview
 
-export interface AgentSpec {
-  agentId: string;               // runtime id for this member instance
-  memberId: string;              // the pack member id
-  title: string;                 // user-facing label
-  instructions: string;          // resolved system prompt (template vars already expanded)
-  objective: string;
-  cwd: string;                   // workspace jail — the adapter MUST run the engine here
-  model?: string;
-  permissionPolicy: PermissionPolicy;
-  allowedTools?: string[];
-  mcpServers?: McpServerConfig[];
-  context?: {
-    tasks?: Task[];
-    inbox?: Message[];
-    memory?: string;
-  };
-}
+The first real adapter detects the Codex CLI and authentication, streams normalized
+JSONL, reports token usage, resumes threads, and supports cancellation. It is not
+production-ready and does not advertise approval support because the current native
+approval flow cannot be bridged through DayCrew before execution. It is fail-closed
+by default and can run only in explicitly acknowledged, isolated read-only
+Workspaces. See [Codex adapter security](./CODEX-ADAPTER.md).
 
-/**
- * MCP server config passed through to adapters where `capabilities.mcp === true`
- * (claude-code). Adapters without MCP support ignore this field.
- */
-export type McpServerConfig =
-  | { transport: "stdio"; name: string; command: string;
-      args?: string[]; env?: Record<string, string> }
-  | { transport: "http"; name: string; url: string;
-      headers?: Record<string, string> };
+## M0 reference
 
-export interface RunContext {
-  runId: string;
-  logSink: (chunk: string) => void; // raw transcript (core redacts + persists)
-  signal: AbortSignal;              // aborted on run cancel
-}
-
-
-export interface AgentHandle {
-  /** Deliver a turn: an objective kick-off, a routed message, or approval feedback. */
-  send(input: AgentInput): Promise<void>;
-  /** Normalized event stream. Core consumes ONLY this — there is no second channel. */
-  readonly events: AsyncIterable<AgentEvent>;
-  interrupt(): Promise<void>;       // stop current turn, keep session
-  stop(): Promise<void>;            // end session, free resources
-  status(): AgentStatus;
-}
-
-export type AgentInput =
-  | { kind: "objective"; text: string }
-  | { kind: "message"; from: string; subject: string; body: string }
-  | { kind: "approval_result"; requestId: string; decision: "approved" | "denied"; feedback?: string };
-```
-
----
-
-## 2. Normalized `AgentEvent`
-
-Every adapter maps its engine's native output to exactly this union. Core never sees
-anything else.
-
-```ts
-export type AgentEvent =
-  | { type: "status"; status: AgentStatus }
-  | { type: "text"; text: string }
-  | { type: "tool_call"; id: string; name: string; input: unknown }
-  | { type: "tool_result"; id: string; output: unknown; isError?: boolean }
-  | { type: "approval_request";
-      actionClass: ActionClass;
-      risk?: RiskLevel;           // adapter's hint; core fills the default if omitted
-      summary: string;            // one line, human-readable
-      payload: unknown;           // e.g. { command } or { path } or { url, method }
-      nativeId?: string }         // engine's own prompt id, if it has one
-  | { type: "task_update";
-      task: { id?: string; title?: string; description?: string;
-              status?: TaskStatus; assignee?: string; deps?: string[] } }
-  | { type: "message_out"; to: string; act: MessageAct; subject: string; body: string }
-  | { type: "artifact"; path: string; kind: string; description?: string }
-  | { type: "usage"; usd?: number; tokens?: number; turns?: number }
-  | { type: "turn_end" }
-  | { type: "done"; summary?: string }
-  | { type: "error"; message: string; fatal?: boolean };
-
-export type AgentStatus =
-  | "idle" | "thinking" | "acting" | "blocked-on-approval"
-  | "waiting-on-dep" | "done" | "error" | "stopped";
-
-export type ActionClass =
-  | "shell.exec" | "fs.write" | "fs.delete" | "net.request"
-  | "spend" | "git.push" | "external.publish";
-
-export type RiskLevel = "low" | "medium" | "high";
-
-/** Default risk when an adapter omits `risk`. Policy/UI may still escalate. */
-export const DEFAULT_RISK: Record<ActionClass, RiskLevel> = {
-  "shell.exec":       "high",
-  "fs.write":         "medium",
-  "fs.delete":        "high",
-  "net.request":      "high",
-  "spend":            "high",
-  "git.push":         "high",
-  "external.publish": "high",
-};
-```
-
-### Design ruling — one event channel
-
-There is exactly **one** adapter→core channel: `AgentHandle.events` yielding
-`AgentEvent`. There is no separate `EngineEvent` / `RunContext.emit`. Lifecycle,
-telemetry, and audit records are **derived by core** from the `AgentEvent` stream
-plus `AgentHandle` lifecycle (`send` resolves, iterator ends, `status()`). Adapters
-that need to report an out-of-turn failure yield `{ type: "error", fatal: true }`.
-
-### How task/message events arise
-
-Engines don't natively emit `task_update` / `message_out`. Two supported mechanisms,
-adapter's choice (document which):
-
-1. **Structured convention** — core injects a small instruction block + gives the
-   member tool-like directives (`daycrew_task`, `daycrew_message`) via MCP or a
-   sentinel syntax the adapter parses out of the text stream.
-2. **Filesystem convention** — the member writes to `outbox/` and a `tasks.json` in
-   its run dir (the `hive` pattern); the adapter tails those and emits events.
-
-The `mock` adapter implements mechanism 1 cleanly and is the reference.
-
----
-
-## 3. Trust boundary (per adapter, must be documented)
-
-| Engine trait | Adapter responsibility |
-|---|---|
-| `nativePermissionPrompts: true` (claude-code) | **Bridge** the native prompt → `approval_request` event; do NOT auto-answer. Relay core's decision back to the native prompt. |
-| `nativePermissionPrompts: false` | Run the engine in its most restricted mode; classify risky actions from the tool stream and emit `approval_request` **before** they execute, or run with tools disabled and require the engine to request them. |
-| all | Honor `cwd` as a jail. Never spawn the engine outside `spec.cwd`. Pass through `permissionPolicy` where the engine supports it. |
-| all | Redact nothing yourself — send raw to `ctx.logSink`; core does redaction. But never `console.log` secrets. |
-
-An adapter that cannot uphold the trust boundary must set `detect().available = false`
-with a clear `reason` until it can.
-
----
-
-## 4. Adapter checklist (PR acceptance)
-
-- [ ] Implements `ProviderAdapter`; no imports from `packages/core`.
-- [ ] `detect()` is honest and fast (<2s), never throws.
-- [ ] Maps to normalized `AgentEvent` only — no engine types leak out.
-- [ ] Trust-boundary section added to the adapter's `README.md`.
-- [ ] Contract test suite passes (shared harness replays a scripted session and
-      asserts the normalized event sequence).
-- [ ] `cwd` jail respected (test: attempt outside-cwd write → `approval_request` or refusal).
-- [ ] Vendor-neutrality: `grep -ri "<engine>" packages/core` → no matches.
+`MockProvider` is deterministic, always available, needs no credentials, and replays
+an injected sequence of normalized events. It exists for core, server, CLI, and UI
+tests; it never accesses a network or filesystem.

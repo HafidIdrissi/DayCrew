@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "name": "Software Development",
+  "description": "Plan, build, test, and review software changes.",
+  "autonomy": "work-with-approval",
+  "members": [
+    {
+      "id": "manager",
+      "name": "Engineering Manager",
+      "role": "Manager",
+      "instructionsFile": "instructions/manager.md",
+      "isManager": true,
+      "engine": { "mode": "auto" }
+    },
+    {
+      "id": "architect",
+      "name": "Software Architect",
+      "role": "Architecture",
+      "instructionsFile": "instructions/architect.md",
+      "isManager": false,
+      "engine": { "mode": "auto" }
+    },
+    {
+      "id": "developer",
+      "name": "Developer",
+      "role": "Implementation",
+      "instructionsFile": "instructions/developer.md",
+      "isManager": false,
+      "engine": { "mode": "auto" }
+    },
+    {
+      "id": "qa",
+      "name": "QA Engineer",
+      "role": "Quality assurance",
+      "instructionsFile": "instructions/qa.md",
+      "isManager": false,
+      "engine": { "mode": "auto" }
+    }
+  ]
+}

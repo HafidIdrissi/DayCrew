@@ -1,0 +1,20 @@
+{
+  "name": "@daycrew/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "pnpm build && node --watch dist/bin.js",
+    "start": "node dist/bin.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@daycrew/core": "workspace:*",
+    "@daycrew/providers": "workspace:*",
+    "@daycrew/shared": "workspace:*",
+    "fastify": "^5.6.0"
+  }
+}

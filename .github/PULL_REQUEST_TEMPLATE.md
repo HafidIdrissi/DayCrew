@@ -1,35 +1,17 @@
-<!-- Thanks for contributing to DayCrew! Keep PRs small and focused. -->
+## What changed
 
-## What & why
+<!-- Explain the user or contributor outcome. -->
 
-<!-- One or two sentences. Link the issue: Closes #123 -->
+## Verification
 
-## Type
+- [ ] `pnpm check` passes
+- [ ] Tests cover changed behavior
+- [ ] Public contracts and docs are updated
+- [ ] UI copy uses user-facing DayCrew language
+- [ ] No credentials, personal data, or generated local state are committed
+- [ ] Provider adapter changes do not modify `packages/core`
+- [ ] Team Pack changes are data/instructions only
 
-- [ ] `feat` — new capability
-- [ ] `fix` — bug fix
-- [ ] `docs` — documentation only
-- [ ] `pack` — new/updated Team Pack
-- [ ] `adapter` — new/updated provider adapter
-- [ ] `chore` / `test` / `refactor`
+## Scope
 
-## Checklist
-
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` all pass locally
-- [ ] Tests added or updated for the change
-- [ ] Docs updated (`README`, `docs/`, `ROADMAP` as relevant)
-- [ ] Conventional Commit messages
-
-## Extension-point PRs only
-
-- [ ] **This PR does not modify `packages/core`.**
-      (Pack and adapter contributions must not need core changes — if yours does,
-      open a separate issue describing the gap in the extension point.)
-- [ ] Pack: `daycrew team validate` passes; `README.md` + license present
-- [ ] Adapter: passes the shared contract test suite; trust-boundary section added
-      to the adapter `README.md`; no imports from `packages/core`
-
-## Security / permissions impact
-
-<!-- Does this touch the approval gate, the workspace jail, network posture, or
-     secret handling? If yes, describe. If no, write "none". -->
+<!-- Name the milestone and call out any proposed scope change. -->

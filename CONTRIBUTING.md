@@ -1,72 +1,36 @@
 # Contributing to DayCrew
 
-Thanks for being here. DayCrew is early — the best contributions right now are
-sharp reviews of the contracts, new **Team Packs**, and new **provider adapters**.
+Thank you for helping build DayCrew. The project is early; small, focused changes and
+clear design discussion are especially valuable.
 
-## Ground rules
+## Development setup
 
-- Be kind. See [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
-- Discuss non-trivial changes in an issue before opening a PR.
-- Security issues go through [`SECURITY.md`](./SECURITY.md), **not** public issues.
-
-## Dev setup
-
-Requirements: Node 20+, pnpm 9+.
+Requirements: Node.js 20.19+ and pnpm 10.
 
 ```bash
-git clone https://github.com/daycrew/daycrew
-cd daycrew
+corepack enable
 pnpm install
-pnpm build
-pnpm test        # vitest, uses the deterministic `mock` engine — no API keys needed
-pnpm lint
-pnpm typecheck
+pnpm check
 ```
 
-The monorepo layout and dependency rules are in
-[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md#3-repository-structure).
+Use Conventional Commit prefixes such as `feat:`, `fix:`, `docs:`, `test:`, and
+`chore:`. Keep one coherent concern per pull request. Update schemas, tests, and docs
+together when a public contract changes.
 
-## Branches, commits, PRs
+## Architecture rules
 
-- Branch from `main`: `feat/…`, `fix/…`, `docs/…`, `pack/…`, `adapter/…`.
-- Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `test:`).
-- One logical change per PR. Keep them small.
-- Every PR: tests pass, docs updated, `PULL_REQUEST_TEMPLATE` checklist complete.
-- CI (lint + typecheck + test) must be green before review.
+- Keep provider-specific code out of `packages/core`.
+- Keep Team Packs data-only.
+- Preserve the user model: Workspace -> Team -> Manager + Members.
+- Do not expose implementation jargon in normal UI copy.
+- Do not weaken approval or audit behavior.
+- Discuss new infrastructure or dependencies before adding them.
 
-## The two extension points
+See [AI Engine adapters](./docs/PROVIDER-ADAPTERS.md) and
+[Team Packs](./docs/TEAM-PACKS.md) for the two primary extension contracts.
 
-DayCrew has exactly two blessed ways to extend it **without changing `packages/core`**.
-A PR that adds a pack or adapter and also modifies `packages/core` will be sent back —
-that means the extension point has a gap, which we fix separately.
+## Pull requests
 
-### 1. Add a Team Pack
-
-A Team Pack is data: a directory with `pack.yaml`, `team.yaml`, and instruction
-markdown. Full spec: [`docs/TEAM-PACKS.md`](./docs/TEAM-PACKS.md).
-
-```bash
-daycrew team validate ./team-packs/community/my-team
-```
-
-Submit under `team-packs/community/<id>/`, or publish to npm as
-`daycrew-team-pack-<id>` and add it to `docs/community-packs.md`.
-
-### 2. Add a provider adapter
-
-An adapter teaches DayCrew to run a member on a new engine. Full spec and the
-acceptance checklist: [`docs/PROVIDER-ADAPTERS.md`](./docs/PROVIDER-ADAPTERS.md).
-
-- One folder in `packages/providers/<engine>/`.
-- No imports from `packages/core`.
-- Maps the engine to the normalized `AgentEvent` stream only.
-- Passes the shared adapter contract test suite.
-- Documents its trust-boundary behavior in the adapter's `README.md`.
-
-## What we won't merge
-
-- Anything that weakens the approval gate or the `cwd` workspace jail by default.
-- Provider names hard-coded in `packages/core`.
-- New runtime infrastructure (databases, services) without a design discussion —
-  DayCrew is deliberately file-based and local-first.
-- Telemetry that is on by default.
+Open an issue for material product or architecture changes. Before requesting review,
+complete the PR template and ensure `pnpm check` passes. Report security issues using
+the private process in [SECURITY.md](./SECURITY.md), not a public issue.

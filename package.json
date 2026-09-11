@@ -2,17 +2,30 @@
   "name": "daycrew",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@9.15.9",
+  "description": "Open-source, local-first AI work operating system",
+  "type": "module",
+  "packageManager": "pnpm@10.15.1",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.0"
   },
   "scripts": {
-    "build": "pnpm --recursive build",
-    "test": "pnpm --recursive test",
-    "typecheck": "pnpm --recursive typecheck"
+    "build": "pnpm --recursive --if-present build",
+    "dev": "pnpm --parallel --filter @daycrew/server --filter @daycrew/web dev",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:integration:codex": "vitest run --config vitest.integration.config.ts",
+    "test:integration:claude": "vitest run --config vitest.integration.claude.config.ts",
+    "test:integration:gemini": "vitest run --config vitest.integration.gemini.config.ts",
+    "test:watch": "vitest",
+    "typecheck": "pnpm build && pnpm --recursive --if-present typecheck",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
-    "vitest": "^2.1.9"
+    "@eslint/js": "^9.35.0",
+    "@types/node": "^22.18.1",
+    "eslint": "^9.35.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.42.0",
+    "vitest": "^3.2.4"
   }
 }

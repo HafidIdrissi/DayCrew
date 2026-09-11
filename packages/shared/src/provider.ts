@@ -1,86 +1,54 @@
 import { z } from "zod";
 
 import {
-  ActionClassSchema,
-  AgentStatusSchema,
-  MessageActSchema,
+  IdSchema,
   MessageSchema,
-  PermissionPolicySchema,
-  TaskSchema,
+  RiskLevelSchema,
+  RiskyActionSchema,
   TaskStatusSchema,
-  type AgentStatus,
-} from "./models.js";
-
-export const DetectResultSchema = z
-  .object({
-    available: z.boolean(),
-    version: z.string().trim().min(1).optional(),
-    reason: z.string().trim().min(1).optional(),
-  })
-  .strict();
-export type DetectResult = z.infer<typeof DetectResultSchema>;
+  UsageSchema,
+} from "./domain.js";
 
 export const ProviderCapabilitiesSchema = z
   .object({
     streaming: z.boolean(),
-    nativeToolUse: z.boolean(),
-    nativePermissionPrompts: z.boolean(),
+    toolUse: z.boolean(),
+    approvals: z.boolean(),
+    interruption: z.boolean(),
     resume: z.boolean(),
-    mcp: z.boolean(),
   })
   .strict();
-export type ProviderCapabilities = z.infer<
-  typeof ProviderCapabilitiesSchema
->;
+export type ProviderCapabilities = z.infer<typeof ProviderCapabilitiesSchema>;
 
-// The approved provider spec names this type but does not define its fields.
-// Keeping the value opaque prevents shared from inventing provider-specific keys.
-export const McpServerConfigSchema = z.record(z.unknown());
-export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
+export const ProviderDetectionSchema = z
+  .object({
+    available: z.boolean(),
+    version: z.string().optional(),
+    reason: z.string().optional(),
+  })
+  .strict();
+export type ProviderDetection = z.infer<typeof ProviderDetectionSchema>;
 
 export const AgentSpecSchema = z
   .object({
-    agentId: z.string().trim().min(1),
-    memberId: z.string().trim().min(1),
-    title: z.string().trim().min(1),
-    instructions: z.string(),
-    objective: z.string().trim().min(1),
-    cwd: z.string().trim().min(1),
+    sessionId: IdSchema,
+    memberId: IdSchema,
+    role: z.string().trim().min(1),
+    instructions: z.string().trim().min(1),
+    goal: z.string().trim().min(1),
+    workspacePath: z.string().trim().min(1),
     model: z.string().trim().min(1).optional(),
-    permissionPolicy: PermissionPolicySchema,
-    allowedTools: z.array(z.string().trim().min(1)).optional(),
-    mcpServers: z.array(McpServerConfigSchema).optional(),
-    context: z
-      .object({
-        tasks: z.array(TaskSchema).optional(),
-        inbox: z.array(MessageSchema).optional(),
-        memory: z.string().optional(),
-      })
-      .strict()
-      .optional(),
   })
   .strict();
 export type AgentSpec = z.infer<typeof AgentSpecSchema>;
 
-export const AgentInputSchema = z.discriminatedUnion("kind", [
+export const AgentInputSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("goal"), text: z.string().trim().min(1) }).strict(),
+  z.object({ type: z.literal("message"), message: MessageSchema }).strict(),
   z
     .object({
-      kind: z.literal("objective"),
-      text: z.string(),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal("message"),
-      from: z.string().trim().min(1),
-      subject: z.string().trim().min(1),
-      body: z.string(),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal("approval_result"),
-      requestId: z.string().trim().min(1),
+      type: z.literal("approval-decision"),
+      requestId: IdSchema,
       decision: z.enum(["approved", "denied"]),
       feedback: z.string().optional(),
     })
@@ -88,137 +56,104 @@ export const AgentInputSchema = z.discriminatedUnion("kind", [
 ]);
 export type AgentInput = z.infer<typeof AgentInputSchema>;
 
-const StatusEventSchema = z
+export const TaskUpdateSchema = z
   .object({
-    type: z.literal("status"),
-    status: AgentStatusSchema,
+    id: IdSchema.optional(),
+    title: z.string().trim().min(1).optional(),
+    description: z.string().optional(),
+    status: TaskStatusSchema.optional(),
+    ownerId: IdSchema.optional(),
+    previousOwnerId: IdSchema.optional(),
+    dependsOn: z.array(IdSchema).optional(),
+    handoffNote: z.string().optional(),
+    needsYou: z.boolean().optional(),
   })
-  .strict();
-const TextEventSchema = z
+  .strict()
+  .refine((task) => task.id !== undefined || task.title !== undefined, {
+    message: "A task update requires an id or title",
+  });
+export type TaskUpdate = z.infer<typeof TaskUpdateSchema>;
+
+export const AgentMessageSchema = z
   .object({
-    type: z.literal("text"),
-    text: z.string(),
-  })
-  .strict();
-const ToolCallEventSchema = z
-  .object({
-    type: z.literal("tool_call"),
-    id: z.string().trim().min(1),
-    name: z.string().trim().min(1),
-    input: z.unknown(),
-  })
-  .strict();
-const ToolResultEventSchema = z
-  .object({
-    type: z.literal("tool_result"),
-    id: z.string().trim().min(1),
-    output: z.unknown(),
-    isError: z.boolean().optional(),
-  })
-  .strict();
-const ApprovalRequestEventSchema = z
-  .object({
-    type: z.literal("approval_request"),
-    actionClass: ActionClassSchema,
-    summary: z.string().trim().min(1),
-    payload: z.unknown(),
-    nativeId: z.string().trim().min(1).optional(),
-  })
-  .strict();
-const TaskUpdateEventSchema = z
-  .object({
-    type: z.literal("task_update"),
-    task: z
-      .object({
-        id: z.string().trim().min(1).optional(),
-        title: z.string().trim().min(1).optional(),
-        description: z.string().optional(),
-        status: TaskStatusSchema.optional(),
-        assignee: z.string().trim().min(1).optional(),
-        deps: z.array(z.string().trim().min(1)).optional(),
-      })
-      .strict(),
-  })
-  .strict();
-const MessageOutEventSchema = z
-  .object({
-    type: z.literal("message_out"),
-    to: z.string().trim().min(1),
-    act: MessageActSchema,
+    toMemberId: IdSchema,
+    taskId: IdSchema.optional(),
     subject: z.string().trim().min(1),
     body: z.string(),
   })
   .strict();
-const ArtifactEventSchema = z
-  .object({
-    type: z.literal("artifact"),
-    path: z.string().trim().min(1),
-    kind: z.string().trim().min(1),
-    description: z.string().optional(),
-  })
-  .strict();
-const UsageEventSchema = z
-  .object({
-    type: z.literal("usage"),
-    usd: z.number().nonnegative().optional(),
-    tokens: z.number().int().nonnegative().optional(),
-    turns: z.number().int().nonnegative().optional(),
-  })
-  .strict();
-const TurnEndEventSchema = z.object({ type: z.literal("turn_end") }).strict();
-const DoneEventSchema = z
-  .object({
-    type: z.literal("done"),
-    summary: z.string().optional(),
-  })
-  .strict();
-const ErrorEventSchema = z
-  .object({
-    type: z.literal("error"),
-    message: z.string().trim().min(1),
-    fatal: z.boolean().optional(),
-  })
-  .strict();
+export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 
-export const AgentEventSchema = z.discriminatedUnion("type", [
-  StatusEventSchema,
-  TextEventSchema,
-  ToolCallEventSchema,
-  ToolResultEventSchema,
-  ApprovalRequestEventSchema,
-  TaskUpdateEventSchema,
-  MessageOutEventSchema,
-  ArtifactEventSchema,
-  UsageEventSchema,
-  TurnEndEventSchema,
-  DoneEventSchema,
-  ErrorEventSchema,
-]);
+export const ApprovalRequestSchema = z
+  .object({
+    requestId: IdSchema.optional(),
+    action: RiskyActionSchema,
+    risk: RiskLevelSchema,
+    summary: z.string().trim().min(1),
+    payload: z.unknown(),
+  })
+  .strict();
+export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;
+
+const AgentEventSchemas = [
+  z.object({ type: z.literal("text"), text: z.string() }).strict(),
+  z
+    .object({
+      type: z.literal("tool_call"),
+      callId: IdSchema,
+      name: z.string().trim().min(1),
+      input: z.unknown(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool_result"),
+      callId: IdSchema,
+      output: z.unknown(),
+      isError: z.boolean().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("task_update"),
+      task: TaskUpdateSchema,
+    })
+    .strict(),
+  z.object({ type: z.literal("message"), message: AgentMessageSchema }).strict(),
+  z
+    .object({
+      type: z.literal("approval_request"),
+      request: ApprovalRequestSchema,
+    })
+    .strict(),
+  z.object({ type: z.literal("usage"), usage: UsageSchema }).strict(),
+  z.object({ type: z.literal("turn_end") }).strict(),
+  z.object({ type: z.literal("done"), summary: z.string().optional() }).strict(),
+  z
+    .object({
+      type: z.literal("error"),
+      message: z.string().trim().min(1),
+      recoverable: z.boolean().default(false),
+    })
+    .strict(),
+] as const;
+
+export const AgentEventSchema = z.discriminatedUnion("type", AgentEventSchemas);
 export type AgentEvent = z.infer<typeof AgentEventSchema>;
 
-// RunContext.emit's EngineEvent is undefined in the approved spec. Unknown keeps
-// the interface usable without falsely blessing a guessed lifecycle contract.
-export type EngineEvent = unknown;
-
-export interface RunContext {
-  runId: string;
-  emit(event: EngineEvent): void;
-  logSink: (chunk: string) => void;
-  signal: AbortSignal;
-}
-
 export interface AgentHandle {
-  send(input: AgentInput): Promise<void>;
   readonly events: AsyncIterable<AgentEvent>;
+  /** Provider-owned conversation identity, when one is known and safe to persist. */
+  getSessionIdentity?(): string | undefined;
+  send(input: AgentInput): Promise<void>;
   interrupt(): Promise<void>;
   stop(): Promise<void>;
-  status(): AgentStatus;
 }
 
 export interface ProviderAdapter {
   readonly id: string;
   readonly displayName: string;
-  detect(): Promise<DetectResult>;
   readonly capabilities: ProviderCapabilities;
-  startAgent(spec: AgentSpec, context: RunContext): Promise<AgentHandle>;
+  detect(): Promise<ProviderDetection>;
+  startAgent(spec: AgentSpec): Promise<AgentHandle>;
 }
