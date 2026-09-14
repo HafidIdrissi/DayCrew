@@ -11,6 +11,7 @@ export interface RecentWorkspace {
 export interface AppConfig {
   version: 1;
   selectedWorkspace?: string;
+  defaultAutonomy?: "assist" | "work-with-approval" | "autonomous";
   recentWorkspaces: RecentWorkspace[];
 }
 
@@ -48,6 +49,7 @@ export class AppConfigStore {
       const config = JSON.parse(await readFile(this.filePath, "utf8")) as AppConfig;
       if (config.version !== 1 || !Array.isArray(config.recentWorkspaces) ||
         (config.selectedWorkspace !== undefined && (typeof config.selectedWorkspace !== "string" || !path.isAbsolute(config.selectedWorkspace))) ||
+        (config.defaultAutonomy !== undefined && !["assist", "work-with-approval", "autonomous"].includes(config.defaultAutonomy)) ||
         config.recentWorkspaces.some((item) => !item || typeof item.root !== "string" || !path.isAbsolute(item.root) ||
           typeof item.name !== "string" || typeof item.lastOpenedAt !== "string")) {
         throw new AppConfigError();
@@ -69,5 +71,12 @@ export class AppConfigStore {
       await rm(temporary, { force: true }).catch(() => undefined);
       throw new AppConfigError({ cause: error });
     }
+  }
+
+  async update(update: Partial<Pick<AppConfig, "defaultAutonomy">>): Promise<AppConfig> {
+    const current = await this.load();
+    const next: AppConfig = { ...current, ...update, version: 1 };
+    await this.save(next);
+    return next;
   }
 }

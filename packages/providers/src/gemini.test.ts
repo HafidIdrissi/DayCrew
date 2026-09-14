@@ -10,6 +10,7 @@ import {
   GeminiProvider,
   normalizeAntigravityTrajectoryStep,
   redactGeminiSecrets,
+  stripGeminiResultEnvelope,
 } from "./index.js";
 
 const directories: string[] = [];
@@ -85,6 +86,15 @@ if (args[1] === "new-conversation") {
 } else process.exit(3);
 `;
 
+/** Accepts the turn slowly, so a Stop can land before a conversation id exists. */
+const slowCommandSource = String.raw`
+const args = process.argv.slice(2);
+if (args[0] !== "agentapi" || args[1] !== "new-conversation") process.exit(2);
+setTimeout(() => {
+  process.stdout.write(JSON.stringify({ response: { newConversation: { conversationId: "conversation-slow" } } }));
+}, 400);
+`;
+
 const fixture = async () => {
   const root = await mkdtemp(path.join(tmpdir(), "daycrew-antigravity-unit-"));
   directories.push(root);
@@ -134,6 +144,24 @@ const spec = (workspacePath: string) => ({
   workspacePath,
 });
 
+describe("Antigravity reply hygiene", () => {
+  it("never shows DayCrew's result envelope to the reader", () => {
+    // Regression: a real Antigravity chat reply leaked the scaffolding verbatim.
+    const raw = 'ANTOK\n\nDAYCREW_RESULT_START\n{"summary":"ANTOK","complete":true,"tasks":[]}\nDAYCREW_RESULT_END';
+    expect(stripGeminiResultEnvelope(raw)).toBe("ANTOK");
+    expect(stripGeminiResultEnvelope(raw)).not.toMatch(/DAYCREW_RESULT/);
+  });
+
+  it("drops a truncated envelope and a fenced JSON envelope too", () => {
+    expect(stripGeminiResultEnvelope('Hi\nDAYCREW_RESULT_START\n{"summary":"x"')).toBe("Hi");
+    expect(stripGeminiResultEnvelope('Done\n```json\n{"summary":"x","complete":true,"tasks":[]}\n```')).toBe("Done");
+  });
+
+  it("leaves an ordinary reply untouched", () => {
+    expect(stripGeminiResultEnvelope("Just a normal answer.")).toBe("Just a normal answer.");
+  });
+});
+
 describe("Antigravity trajectory normalization", () => {
   it("normalizes tool, text, usage, and error steps without leaking secrets", () => {
     expect(normalizeAntigravityTrajectoryStep(completedSteps[1])).toMatchObject({
@@ -163,7 +191,7 @@ describe("GeminiProvider through Antigravity Agent API", () => {
       },
     });
 
-    await expect(provider.detect()).resolves.toEqual({ available: true, version: "2.0.6.0" });
+    await expect(provider.detect()).resolves.toEqual({ available: true, installed: true, authenticated: true, version: "2.0.6.0" });
     const handle = await provider.startAgent(spec(root));
     await handle.send({ type: "goal", text: "Prepare the endpoint plan." });
     const events: AgentEvent[] = [];
@@ -217,5 +245,30 @@ describe("GeminiProvider through Antigravity Agent API", () => {
     await expect(new GeminiProvider({ connection }).startAgent(spec(root))).rejects.toThrow(
       "unavailable by default",
     );
+  });
+
+  it("cancels a run that only became identifiable after the Stop", async () => {
+    // Regression: a Stop during conversation creation had no id to cancel, so the
+    // provider kept working on a turn DayCrew had already abandoned.
+    const { root } = await fixture();
+    const commandPath = path.join(root, "slow-antigravity.mjs");
+    await writeFile(commandPath, slowCommandSource, "utf8");
+    const bridge = await startBridge("CASCADE_RUN_STATUS_RUNNING");
+    const handle = await new GeminiProvider({
+      connection: {
+        endpoint: bridge.endpoint,
+        csrfToken: "test-only-token",
+        languageServerCommand: [process.execPath, commandPath],
+      },
+      allowUnsafeDisposableWorkspace: true,
+      allowedWorkspaceRoots: [root],
+      pollIntervalMs: 5,
+    }).startAgent(spec(root));
+    const sending = handle.send({ type: "goal", text: "Keep working." });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await handle.stop();
+    await sending;
+
+    expect(bridge.wasCancelled()).toBe(true);
   });
 });

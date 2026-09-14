@@ -1,0 +1,24 @@
+# Known limitations — v0.1.0-alpha
+
+DayCrew is alpha software intended for evaluation and contribution.
+
+- DayCrew is local-first and single-machine. There are no cloud accounts or multi-user synchronization.
+- Workspace state uses local JSON and JSONL files. There is no database migration or concurrent multi-process editing layer.
+- Provider capabilities differ. Claude Code is the actionable provider; Codex CLI and Cursor CLI are read-only previews with no approval bridge; the Antigravity Agent API remains restricted experimental. None but Claude Code is Auto-selected.
+- DayCrew's `gemini` engine is the Antigravity desktop app's local Agent API, not the separate Gemini CLI, and its discovery is implemented for Windows only.
+- Grok Build (`grok`) is integrated as a read-only preview. Detection, model discovery, stream normalization, launch policy, continuation and cancellation are covered, but no successful live turn or filesystem boundary has been observed because the installed CLI is not signed in. It is never selected by Auto.
+- Codex CLI conversation context, continuation, cancellation, orchestration and write refusal are verified live. Its real read task remains blocked on the tested Windows CLI: under DayCrew's `--sandbox read-only --ask-for-approval never` policy, the Codex tool router rejects the PowerShell host before executing the read and emits no tool event. The integration test reports that case as skipped, never passing.
+- The Gemini CLI is not integrated: on the machine and account tested it failed to authenticate before any turn. See [PROVIDER-ADAPTERS.md](./PROVIDER-ADAPTERS.md) for the exact error.
+- A disposable working folder is a convention, not a sandbox. For the read-only previews (Codex, Cursor, Antigravity) DayCrew does not confine the process, and reads outside that folder have been observed on both engines that were tested: Antigravity returned a file planted outside its fixture, and the Codex CLI's own read-only sandbox read both a file outside the folder and the Codex credential file. See [ENGINE-VALIDATION.md](./ENGINE-VALIDATION.md).
+- Readiness does not include an engine's account limits. `codex login status` reported a signed-in account whose every turn was refused for exceeding its usage limit, and no command exposes that before a turn is spent. DayCrew shows installed and signed-in separately, and a chat reply now names a usage limit or a sign-in failure when the engine reports one.
+- Antigravity's read-only prompt restriction is not a boundary, and compliance varies between runs. A prohibited write executed in both recorded runs; an out-of-folder read was declined in one run and performed in another.
+- Model selection is validated but not verified for you. A custom identifier an engine documents as acceptable is saved as typed, and a wrong one fails on the first turn rather than at save time.
+- Provider restart recovery fails closed. Some interrupted actions require human review because DayCrew cannot prove their outcome.
+- The Office view draws a 2D office floor with one desk per Member and a Manager's corner, plus an accessible list view. Decorations (plants, screens, an idle character bob) are animated; every work signal comes from persisted server state. It intentionally has no free-moving avatars, routed messages, or simulated progress: an animation must never imply work that did not happen. All motion stops under `prefers-reduced-motion`.
+- Crew characters are generated procedurally from the agent id, so a Member keeps the same appearance across reloads and views. There is no avatar picker; choosing a look would need persisted, server-validated state that the alpha does not have.
+- The web app uses short polling for live state because the alpha has no WebSocket transport. The header reports whether the local service is reachable, but a lost connection is detected on the next poll rather than instantly.
+- The public site (`packages/site`) is static and cannot open, detect, or launch a local DayCrew installation. It links to the install steps instead.
+- Skills can be browsed and permanently assigned from the Skills view. Task-scoped (temporary) Skills are still added from the Team page while a Task is active, and Skills cannot be authored in the app.
+- The initial bundled catalog contains one mature Software Development Team Pack and twelve curated Skills; additional Packs are intentionally deferred until they meet the same quality bar.
+- The release is source-installed. There is no `npx daycrew`, packaged desktop app, mobile app, marketplace, billing, or hosted service.
+- The public site ships one real capture (the Office view, from the reproducible demo Workspace). The remaining screenshots and the demo recording still have to be captured the same way before launch; the hero placeholders in this repo are marked as such.

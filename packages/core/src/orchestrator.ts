@@ -14,6 +14,7 @@ import { ActivityService } from "./activity.js";
 import { ApprovalService, type ApprovalServiceOptions } from "./approval.js";
 import { WorkSessionService } from "./session.js";
 import { TeamService } from "./workspace.js";
+import { SkillService } from "./skill.js";
 
 export interface OrchestratorDependencies {
   readonly providers: ReadonlyMap<string, ProviderAdapter>;
@@ -44,6 +45,7 @@ export class ManagerOrchestrator {
   private readonly now: () => string;
   private readonly repeatedEvents = new Map<string, number>();
   private readonly completionBySession = new Map<string, Promise<WorkResult>>();
+  private readonly reportedSkillIssues = new Set<string>();
 
   constructor(
     private readonly workspaceRoot: string,
@@ -208,6 +210,8 @@ export class ManagerOrchestrator {
           break;
         }
         await this.sessions.setMemberStatus(session.id, manager.id, "thinking", runnable.id);
+        managerRuntime.currentTaskId = runnable.id;
+        await this.refreshAgentInstructions(session, managerRuntime, runnable.id);
         await managerRuntime.handle.send({ type: "message", message: resultMessage });
         managerBoundary = await this.consumeTurn(session.id, team, managerRuntime, revealWaiting);
       }
@@ -250,11 +254,12 @@ export class ManagerOrchestrator {
     currentTaskId?: string,
   ): Promise<AgentRuntime> {
     const provider = await this.providerFor(member);
+    const instructions = await this.effectiveInstructions(session, member, provider, currentTaskId);
     const handle = await provider.startAgent({
       sessionId: session.id,
       memberId: member.id,
       role: member.role,
-      instructions: member.instructions,
+      instructions,
       goal: session.goal,
       workspacePath: this.workspaceRoot,
       ...(member.engine.model === undefined ? {} : { model: member.engine.model }),
@@ -266,6 +271,50 @@ export class ManagerOrchestrator {
       iterator: handle.events[Symbol.asyncIterator](),
       ...(currentTaskId === undefined ? {} : { currentTaskId }),
     };
+  }
+
+  private async refreshAgentInstructions(
+    session: WorkSession,
+    runtime: AgentRuntime,
+    currentTaskId?: string,
+  ): Promise<void> {
+    if (!runtime.handle.updateInstructions) return;
+    const provider = this.dependencies.providers.get(runtime.providerId);
+    if (!provider) throw new Error(`AI Engine "${runtime.providerId}" is not configured`);
+    await runtime.handle.updateInstructions(
+      await this.effectiveInstructions(session, runtime.member, provider, currentTaskId),
+    );
+  }
+
+  private async effectiveInstructions(
+    session: WorkSession,
+    member: TeamMember,
+    provider: ProviderAdapter,
+    currentTaskId?: string,
+  ): Promise<string> {
+    const skillContext = await new SkillService(this.workspaceRoot).effectiveContext(
+      session.teamId,
+      member.id,
+      currentTaskId,
+      provider.capabilities,
+      session.id,
+    );
+    for (const issue of skillContext.issues) {
+      const key = `${session.id}:${member.id}:${currentTaskId ?? "team"}:${issue}`;
+      if (this.reportedSkillIssues.has(key)) continue;
+      this.reportedSkillIssues.add(key);
+      await this.activity.record({
+        workspaceId: session.workspaceId,
+        teamId: session.teamId,
+        sessionId: session.id,
+        kind: issue.startsWith("Skill conflict") || issue.startsWith("Material Skill conflict")
+          ? "skill.conflict"
+          : "skill.requirement_missing",
+        summary: issue,
+        data: { memberId: member.id, ...(currentTaskId === undefined ? {} : { taskId: currentTaskId }) },
+      });
+    }
+    return skillContext.instructions;
   }
 
   private async providerFor(member: TeamMember): Promise<ProviderAdapter> {

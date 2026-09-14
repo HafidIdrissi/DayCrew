@@ -16,6 +16,8 @@ import { AsyncQueue } from "./async-queue.js";
 export type MockScript = ReadonlyArray<ReadonlyArray<AgentEvent>>;
 
 export interface MockProviderOptions {
+  readonly id?: string;
+  readonly displayName?: string;
   readonly script?: MockScript;
   readonly scriptsByMember?: Readonly<Record<string, MockScript>>;
 }
@@ -69,6 +71,8 @@ class MockAgentHandle implements AgentHandle {
     }
   }
 
+  async updateInstructions(_instructions: string): Promise<void> {}
+
   async interrupt(): Promise<void> {
     if (this.stopped) return;
     this.queue.push({
@@ -85,21 +89,25 @@ class MockAgentHandle implements AgentHandle {
 }
 
 export class MockProvider implements ProviderAdapter {
-  readonly id = "mock";
-  readonly displayName = "Deterministic Mock";
+  readonly id: string;
+  readonly displayName: string;
   readonly capabilities: ProviderCapabilities = {
     streaming: true,
     toolUse: true,
     approvals: true,
     interruption: true,
     resume: false,
+    skillCapabilities: ["filesystem.read", "filesystem.write", "command.run", "browser", "network"],
   };
 
   private readonly script: MockScript;
   private readonly scriptsByMember: Readonly<Record<string, MockScript>>;
   readonly inputs: Array<{ readonly memberId: string; readonly input: AgentInput }> = [];
+  readonly specs: AgentSpec[] = [];
 
   constructor(options: MockScript | MockProviderOptions = defaultScript) {
+    this.id = isMockScript(options) ? "mock" : (options.id ?? "mock");
+    this.displayName = isMockScript(options) ? "Deterministic Mock" : (options.displayName ?? "Deterministic Mock");
     this.script = isMockScript(options) ? options : (options.script ?? defaultScript);
     this.scriptsByMember = isMockScript(options) ? {} : (options.scriptsByMember ?? {});
     for (const script of [this.script, ...Object.values(this.scriptsByMember)]) {
@@ -110,11 +118,12 @@ export class MockProvider implements ProviderAdapter {
   }
 
   async detect(): Promise<ProviderDetection> {
-    return { available: true, version: "0.0.0" };
+    return { available: true, installed: true, authenticated: true, version: "0.0.0" };
   }
 
   async startAgent(spec: AgentSpec): Promise<AgentHandle> {
     const parsed = AgentSpecSchema.parse(spec);
+    this.specs.push(parsed);
     return new MockAgentHandle(
       this.scriptsByMember[parsed.memberId] ?? this.script,
       parsed.memberId,

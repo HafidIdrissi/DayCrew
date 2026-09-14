@@ -63,7 +63,8 @@ export class WorkspaceService {
   async create(name: string): Promise<Workspace> {
     const configPath = statePath(this.workspaceRoot, "workspace.json");
     if (await fileExists(configPath)) {
-      throw new Error(`A DayCrew Workspace already exists at ${path.resolve(this.workspaceRoot)}`);
+      // A typed conflict: re-initializing would orphan the Teams and state already here.
+      throw new WorkspaceStateError("WORKSPACE_ALREADY_INITIALIZED", path.resolve(this.workspaceRoot));
     }
     const timestamp = this.now();
     const workspace = WorkspaceSchema.parse({
@@ -78,6 +79,7 @@ export class WorkspaceService {
       ensureDirectory(statePath(this.workspaceRoot, "knowledge")),
       ensureDirectory(statePath(this.workspaceRoot, "memory")),
       ensureDirectory(statePath(this.workspaceRoot, "sessions")),
+      ensureDirectory(statePath(this.workspaceRoot, "skills")),
       ensureDirectory(statePath(this.workspaceRoot, "state")),
     ]);
     return writeJson(configPath, workspace, WorkspaceSchema);

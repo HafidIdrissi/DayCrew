@@ -144,7 +144,7 @@ export class ApprovalService {
         memberId: input.memberId,
         kind: "approval",
         title: input.request.summary,
-        detail: `Approval required for ${input.request.action}`,
+        detail: "Review and approve this action before it runs.",
         ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
         risk: input.request.risk,
         action: input.request.action,

@@ -1,67 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
-import { ApiError, createTeam, createWorkspace, getApp, getWorkspacePicker, installStarterTeam, listTeams, openWorkspace } from "./api";
-import { AppSidebar, ErrorTeamPage, Icon, LoadingTeamPage } from "./components";
+import { ApiError, createTeam, getApp, installStarterTeam, listTeams } from "./api";
+import { ErrorTeamPage, Icon, LoadingTeamPage, StateFrame, TeamCard } from "./components";
 import { TeamPage } from "./TeamPage";
-import type { AppState, Team, WorkspacePickerData } from "./types";
-
-const StateFrame = ({ children }: { children: ReactNode }) =>
-  <div className="app-frame"><AppSidebar needsCount={0} /><main className="app-main state-main">{children}</main></div>;
-
-const WorkspacePicker = ({ app, onSelected, onCancel }: {
-  app: AppState; onSelected: (next: AppState) => void; onCancel: () => void;
-}) => {
-  const [mode, setMode] = useState<"create" | "open">();
-  const [root, setRoot] = useState("");
-  const [name, setName] = useState("My Workspace");
-  const [picker, setPicker] = useState<WorkspacePickerData>({ recentWorkspaces: [] });
-  const [error, setError] = useState<ApiError>();
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let active = true;
-    void getWorkspacePicker().then((next) => {
-      if (!active) return;
-      setPicker(next);
-      if (!app.workspace.initialized && next.selectedRoot) setRoot(next.selectedRoot);
-    }).catch((caught: ApiError) => { if (active) setError(caught); });
-    return () => { active = false; };
-  }, [app.workspace.initialized]);
-  const select = async (candidate: string, initialize = false) => {
-    setBusy(true); setError(undefined);
-    try {
-      const next = initialize ? await createWorkspace(candidate, name) : await openWorkspace(candidate);
-      window.location.hash = "teams";
-      onSelected(next);
-    } catch (caught) {
-      setError(caught as ApiError);
-    } finally { setBusy(false); }
-  };
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void select(root.trim(), mode === "create"); };
-  const chooseMode = (next: "create" | "open") => { setMode(next); setError(undefined); };
-  const issue = error ?? app.issue;
-  return <StateFrame><section className="state-page onboarding-state workspace-picker">
-    <span className="state-icon"><Icon name="logo" size={36} /></span>
-    <h1>{app.workspace.initialized ? "Choose a Workspace" : "Welcome to DayCrew"}</h1>
-    <p>Choose where your team will work.</p>
-    {issue && issue.code !== "WORKSPACE_NOT_SELECTED" && <p role="alert" className="workspace-notice">{issue.message}</p>}
-    <div className="state-action-row">
-      <button className={mode === "create" ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => chooseMode("create")}>Create a Workspace</button>
-      <button className={mode === "open" ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => chooseMode("open")}>Open an existing Workspace</button>
-    </div>
-    {(mode || issue?.code === "WORKSPACE_NOT_INITIALIZED") && <form className="workspace-create-form path-form" onSubmit={submit}>
-      <label><span>Folder path</span><input autoFocus name="workspaceRoot" value={root} onChange={(event) => setRoot(event.target.value)} disabled={busy} required placeholder="Full path to an existing folder" autoComplete="off" spellCheck={false} /></label>
-      <small>Your project stays here. DayCrew stores its local state in this folder's .daycrew directory.</small>
-      {mode === "create" && <label><span>Workspace name</span><input name="workspaceName" value={name} onChange={(event) => setName(event.target.value)} disabled={busy} required /></label>}
-      {issue?.code === "WORKSPACE_NOT_INITIALIZED" && mode !== "create"
-        ? <button className="primary-button" type="button" onClick={() => chooseMode("create")}>Initialize DayCrew here</button>
-        : <button className="primary-button" type="submit" disabled={busy || !root.trim()}>{busy ? "Opening Workspace..." : mode === "create" ? "Create Workspace" : "Open Workspace"}</button>}
-    </form>}
-    {!mode && picker.recentWorkspaces.length > 0 && <div className="recent-workspaces"><h2>Recent Workspaces</h2>
-      {picker.recentWorkspaces.map((item) => <button className="recent-workspace" key={item.root} disabled={busy} onClick={() => { setRoot(item.root); setMode("open"); void select(item.root); }}><strong>{item.name}</strong><small>{item.root}</small></button>)}
-    </div>}
-    {app.workspace.initialized && <button className="secondary-button picker-cancel" disabled={busy} onClick={onCancel}>Back to Workspace</button>}
-  </section></StateFrame>;
-};
+import { ChatPage } from "./ChatPage";
+import { HomePage } from "./HomePage";
+import { TasksPage } from "./TasksPage";
+import { OfficePage } from "./OfficePage";
+import { NeedsYouPage } from "./NeedsYouPage";
+import { SkillsPage } from "./SkillsPage";
+import { OnboardingPage } from "./OnboardingPage";
+import { SettingsPage } from "./SettingsPage";
+import { WorkspacePicker } from "./WorkspacePicker";
+import type { AppState, Team } from "./types";
 
 const TeamsPage = ({ app, onSwitch, onWorkspaceIssue }: {
   app: AppState; onSwitch: () => void; onWorkspaceIssue: () => void;
@@ -93,22 +44,25 @@ const TeamsPage = ({ app, onSwitch, onWorkspaceIssue }: {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = String(new FormData(event.currentTarget).get("teamName") ?? "").trim();
-    if (name) void create(name);
+    if (name && !busy) void create(name);
   };
-  return <StateFrame><section className="state-page teams-page">
+  return <StateFrame activeView="Team"><section className="state-page teams-page">
     <button className="secondary-button" onClick={onSwitch}>{app.workspace.name} <Icon name="chevron" size={16} /></button>
     <span className="state-icon"><Icon name="team" size={30} /></span>
     <h1>{teams?.length === 0 ? "Your Workspace is ready." : "Your Teams"}</h1>
     <p>{teams?.length === 0 ? "Create your first AI Team." : "Choose a team to coordinate its work."}</p>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {teams === undefined && !error && <p>Loading Teams...</p>}
-    {teams && teams.length > 0 && <div className="team-list">{teams.map((team) => <a className="recent-workspace" key={team.id} href={"#teams/" + team.id}><strong>{team.name}</strong><small>{team.members.length} {team.members.length === 1 ? "member" : "members"} · {team.description || "Ready for your next goal"}</small><Icon name="arrow" size={16} /></a>)}</div>}
-    {teams && !creating && <button className="primary-button" onClick={() => setCreating(true)}>Create Team</button>}
+    {teams && teams.length > 0 && <div className="team-list">{teams.map((team) => <TeamCard team={team} key={team.id} />)}</div>}
+    {teams && !creating && <div className="team-start-options">
+      <article><Icon name="sparkle" size={24} /><h2>Start with a ready-made crew</h2><p>A Software Development team with a Manager and specialists. A quick way to try your first goal.</p><button className="primary-button" disabled={busy} onClick={() => void create()}>{busy ? "Creating..." : "Use developer team"}</button></article>
+      <article><Icon name="team" size={24} /><h2>Build your own team</h2><p>Start with a Manager, then add agents with the roles and instructions your project needs.</p><button className="secondary-button" disabled={busy} onClick={() => setCreating(true)}>Create Team</button></article>
+    </div>}
     {creating && <form className="workspace-create-form path-form" onSubmit={submit}>
       <label><span>Team name</span><input autoFocus name="teamName" disabled={busy} required placeholder="e.g. Product Team" /></label>
       <small>Your team starts with a Manager ready to receive a goal.</small>
       <button className="primary-button" type="submit" disabled={busy}>{busy ? "Creating..." : "Create Team"}</button>
-      <button className="secondary-button" type="button" disabled={busy} onClick={() => void create()}>Use Software Development Team Pack</button>
+      <button className="secondary-button" type="button" disabled={busy} onClick={() => setCreating(false)}>Back to team options</button>
     </form>}
   </section></StateFrame>;
 };
@@ -144,6 +98,16 @@ export const App = () => {
   if (error) return <StateFrame><ErrorTeamPage message={error} onRetry={() => void refresh()} /></StateFrame>;
   if (!app) return <StateFrame><LoadingTeamPage /></StateFrame>;
   if (choosing || !app.workspace.initialized) return <WorkspacePicker app={app} onSelected={selected} onCancel={() => setChoosing(false)} />;
+  if (hash === "#onboarding") return <OnboardingPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} />;
+  if (hash === "" || hash === "#home") return <HomePage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
+  // Needs You used to live under the Tasks route; the old link stays valid.
+  if (hash === "#needs-you" || hash === "#tasks/needs-you") return <NeedsYouPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
+  if (hash === "#tasks" || hash.startsWith("#tasks/")) return <TasksPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} routeHash={hash} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
+  if (hash === "#office") return <OfficePage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
+  if (hash === "#skills") return <SkillsPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
+  if (hash === "#settings") return <SettingsPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
   if (!hash.startsWith("#teams/")) return <TeamsPage key={app.workspace.selectionId} app={app} onSwitch={() => setChoosing(true)} onWorkspaceIssue={recover} />;
+  const chatTeam = hash.match(/^#teams\/([a-z0-9_-]+)$/)?.[1];
+  if (chatTeam) return <ChatPage key={app.workspace.selectionId + chatTeam} teamId={chatTeam} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
   return <TeamPage key={app.workspace.selectionId + hash} selectionId={app.workspace.selectionId} workspaceKey={app.workspace.key!} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
 };

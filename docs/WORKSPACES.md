@@ -74,9 +74,9 @@ All durable runtime state remains under the selected root:
     activity.jsonl
 ```
 
-The existing Skills preview still uses browser-local storage; its keys are now
-namespaced by an opaque Workspace key plus Team id to avoid crossing Workspaces.
-This task adds no Skills backend.
+Workspace-local Skills live in `.daycrew/skills/<skill-id>/`. Permanent Member
+assignments are stored in the Team JSON. Temporary assignments are stored with
+the Task in its Work Session, so all Skill state follows the selected Workspace.
 
 ## HTTP contract
 

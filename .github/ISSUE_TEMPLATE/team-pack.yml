@@ -1,0 +1,30 @@
+name: Team Pack contribution
+description: Propose a coherent professional Team Pack.
+title: "[Team Pack]: "
+labels: [team-pack]
+body:
+  - type: input
+    id: profession
+    attributes: { label: Profession or workflow }
+    validations: { required: true }
+  - type: textarea
+    id: roster
+    attributes:
+      label: Manager and Members
+      description: Explain every role and the handoffs between them.
+    validations: { required: true }
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Example goal and validation
+      description: Give one realistic goal and the expected Task flow.
+    validations: { required: true }
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Data-only contract
+      options:
+        - label: The Pack contains only data and Markdown instructions.
+          required: true
+        - label: The Pack defines exactly one Manager.
+          required: true

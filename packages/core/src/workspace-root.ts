@@ -1,4 +1,4 @@
-import { accessSync, constants, lstatSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, lstatSync, mkdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import path from "node:path";
 
 import { workspaceError, WorkspaceStateError } from "./workspace-errors.js";
@@ -23,6 +23,35 @@ export const canonicalizeWorkspaceRoot = (candidate: string): WorkspaceRoot => {
   } catch (error) {
     throw workspaceError(error, candidate, "WORKSPACE_NOT_FOUND");
   }
+};
+
+/**
+ * Resolves the folder chosen for a *new* Workspace. Unlike opening, the folder may
+ * not exist yet: creating it is the point of Create Workspace, so it is created when
+ * the path is usable. An existing folder is left untouched.
+ */
+export const prepareWorkspaceRoot = (candidate: string): WorkspaceRoot => {
+  if (!candidate || !path.isAbsolute(candidate) || candidate.includes("\0")) {
+    throw new WorkspaceStateError("WORKSPACE_PATH_INVALID", candidate);
+  }
+  let existing: Stats | undefined;
+  try {
+    existing = statSync(candidate);
+  } catch (error) {
+    // Only "nothing is there yet" is ours to fix; ENOTDIR/EACCES keep their meaning.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw workspaceError(error, candidate, "WORKSPACE_PATH_INVALID");
+    }
+  }
+  if (existing && !existing.isDirectory()) throw new WorkspaceStateError("WORKSPACE_PATH_INVALID", candidate);
+  if (!existing) {
+    try {
+      mkdirSync(candidate, { recursive: true });
+    } catch (error) {
+      throw workspaceError(error, candidate, "WORKSPACE_PATH_INVALID");
+    }
+  }
+  return canonicalizeWorkspaceRoot(candidate);
 };
 
 /** Discovery is opt-in, for CLI / explicitly requested developer workflows only. */

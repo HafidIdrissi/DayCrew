@@ -1,0 +1,19 @@
+name: Focused feature proposal
+description: Describe a concrete user problem within DayCrew's roadmap.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: User problem }
+    validations: { required: true }
+  - type: textarea
+    id: outcome
+    attributes: { label: Desired outcome }
+    validations: { required: true }
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and alternatives
+      description: Name affected views/contracts and what should remain deferred.
+    validations: { required: true }

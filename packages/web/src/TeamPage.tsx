@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { loadTeamDashboard, providerErrorKind, startGoal } from "./api";
+import {
+  addPermanentSkill,
+  addTemporarySkill,
+  getSkillRecommendations,
+  loadTeamDashboard,
+  providerErrorKind,
+  removePermanentSkill,
+  removeTemporarySkill,
+  startGoal,
+} from "./api";
 import {
   ActivityFeed,
   AppSidebar,
@@ -16,13 +25,8 @@ import {
   TeamSummary,
   TopBar,
 } from "./components";
-import {
-  PREVIEW_SKILL_CATALOG,
-  loadSkillAttachments,
-  saveSkillAttachments,
-  type SkillAttachment,
-} from "./skillCatalog";
-import type { MemberStatus, TeamDashboardData, WorkspaceIssueState } from "./types";
+import { activeTaskFor } from "./skillCatalog";
+import type { MemberSkill, MemberStatus, SkillRecommendation, TeamDashboardData, WorkspaceIssueState } from "./types";
 
 const latestFirst = <T extends { startedAt: string }>(items: T[]): T[] =>
   [...items].sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
@@ -39,7 +43,7 @@ export const memberStatusMap = (data: TeamDashboardData): Map<string, MemberStat
 };
 
 const teamIdFromHash = (): string | undefined => {
-  const match = window.location.hash.match(/^#teams\/([a-z0-9_-]+)$/);
+  const match = window.location.hash.match(/^#teams\/([a-z0-9_-]+)(?:\/overview)?$/);
   return match?.[1];
 };
 
@@ -47,7 +51,7 @@ const isWorkspaceIssue = (
   value: TeamDashboardData | WorkspaceIssueState | null | undefined,
 ): value is WorkspaceIssueState => value !== null && value !== undefined && "kind" in value;
 
-export const TeamPage = ({ selectionId, workspaceKey, onSwitchWorkspace, onWorkspaceIssue }: {
+export const TeamPage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }: {
   selectionId: string; workspaceKey: string; onSwitchWorkspace: () => void; onWorkspaceIssue: () => void;
 }) => {
   const [data, setData] = useState<TeamDashboardData | WorkspaceIssueState | null | undefined>();
@@ -55,9 +59,9 @@ export const TeamPage = ({ selectionId, workspaceKey, onSwitchWorkspace, onWorks
   const [composerError, setComposerError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [query, setQuery] = useState("");
-  const [drawerOpen, setDrawerOpen] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMemberId, setDrawerMemberId] = useState<string>();
-  const [attachments, setAttachments] = useState<SkillAttachment[]>([]);
+  const [recommendations, setRecommendations] = useState<SkillRecommendation[]>([]);
   const generation = useRef(0);
 
   const refresh = useCallback(async (quiet = false) => {
@@ -95,11 +99,21 @@ export const TeamPage = ({ selectionId, workspaceKey, onSwitchWorkspace, onWorks
 
   useEffect(() => {
     if (!dashboard) return;
-    setAttachments(loadSkillAttachments(`${workspaceKey}.${dashboard.team.id}`));
     setDrawerMemberId((current) => current && dashboard.team.members.some((member) => member.id === current)
       ? current
       : dashboard.team.members.find((member) => member.isManager)?.id ?? dashboard.team.members[0]?.id);
-  }, [workspaceKey, dashboard?.team.id]);
+  }, [dashboard?.team.id]);
+
+  useEffect(() => {
+    if (!dashboard || !drawerMemberId) return;
+    let active = true;
+    setRecommendations([]);
+    const task = activeTaskFor(dashboard.tasks, drawerMemberId);
+    void getSkillRecommendations(dashboard.team.id, drawerMemberId, selectionId, task?.id, task?.sessionId)
+      .then((items) => { if (active) setRecommendations(items); })
+      .catch(() => { if (active) setRecommendations([]); });
+    return () => { active = false; };
+  }, [dashboard?.team.id, dashboard?.tasks, drawerMemberId, selectionId]);
 
   const startManagerGoal = async (goal: string) => {
     if (!dashboard) return;
@@ -121,13 +135,6 @@ export const TeamPage = ({ selectionId, workspaceKey, onSwitchWorkspace, onWorks
     }
   };
 
-  const attachSkill = (attachment: SkillAttachment) => {
-    if (!dashboard) return;
-    const next = [...attachments.filter((item) => !(item.memberId === attachment.memberId && item.skillId === attachment.skillId && item.scope === attachment.scope && item.taskId === attachment.taskId)), attachment];
-    setAttachments(next);
-    saveSkillAttachments(`${workspaceKey}.${dashboard.team.id}`, next);
-  };
-
   const statusByMember = useMemo(() => dashboard ? memberStatusMap(dashboard) : new Map<string, MemberStatus>(), [dashboard]);
 
   if (data === undefined && !error) return <div className="app-frame"><AppSidebar needsCount={0} /><main className="app-main state-main"><LoadingTeamPage /></main></div>;
@@ -143,7 +150,32 @@ export const TeamPage = ({ selectionId, workspaceKey, onSwitchWorkspace, onWorks
   const visibleTasks = dashboard.tasks.filter((task) => !normalizedQuery || `${task.title} ${task.description}`.toLowerCase().includes(normalizedQuery));
   const visibleActivity = dashboard.activity.filter((event) => !normalizedQuery || `${event.summary} ${event.kind}`.toLowerCase().includes(normalizedQuery));
   const drawerMember = dashboard.team.members.find((member) => member.id === drawerMemberId) ?? manager ?? dashboard.team.members[0];
-  const skillsFor = (memberId: string) => PREVIEW_SKILL_CATALOG.filter((skill) => attachments.some((attachment) => attachment.memberId === memberId && attachment.skillId === skill.id && attachment.scope === "member"));
+  const skillStateFor = (memberId: string) => dashboard.memberSkills.find((state) => state.memberId === memberId);
+  const skillsFor = (memberId: string) => skillStateFor(memberId)?.assignments.filter((assignment) => assignment.scope === "permanent").map((assignment) => assignment.skill) ?? [];
+  const attachSkill = async (scope: "task" | "member", skillId: string, taskId?: string) => {
+    if (!drawerMember) return;
+    if (scope === "task") {
+      if (!taskId) throw new Error("Choose an active Task before adding a temporary Skill.");
+      const task = dashboard.tasks.find((candidate) => candidate.id === taskId);
+      if (!task) throw new Error("DayCrew could not find this Task.");
+      await addTemporarySkill(taskId, task.sessionId, drawerMember.id, skillId, selectionId);
+    } else {
+      await addPermanentSkill(dashboard.team.id, drawerMember.id, skillId, selectionId);
+    }
+    await refresh(true);
+  };
+  const removeSkill = async (assignment: MemberSkill) => {
+    if (!drawerMember) return;
+    if (assignment.scope === "temporary") {
+      if (!assignment.taskId) throw new Error("This temporary Skill is missing its Task.");
+      const task = dashboard.tasks.find((candidate) => candidate.id === assignment.taskId);
+      if (!task) throw new Error("DayCrew could not find this Task.");
+      await removeTemporarySkill(assignment.taskId, task.sessionId, drawerMember.id, assignment.skill.id, selectionId);
+    } else {
+      await removePermanentSkill(dashboard.team.id, drawerMember.id, assignment.skill.id, selectionId);
+    }
+    await refresh(true);
+  };
   const openSkillsFor = (memberId: string) => { setDrawerMemberId(memberId); setDrawerOpen(true); };
   const activeCount = [...statusByMember.values()].filter((status) => ["thinking", "working"].includes(status)).length;
 
@@ -151,10 +183,12 @@ export const TeamPage = ({ selectionId, workspaceKey, onSwitchWorkspace, onWorks
     <div className="app-frame">
       <AppSidebar needsCount={dashboard.needsYou.length} />
       <main className="app-main">
-        <TopBar workspace={dashboard.workspace} query={query} onQueryChange={setQuery} onSwitchWorkspace={onSwitchWorkspace} />
+        <TopBar workspace={dashboard.workspace} query={query} needsCount={dashboard.needsYou.length} onQueryChange={setQuery} onSwitchWorkspace={onSwitchWorkspace} />
         <div className={`team-layout ${drawerOpen ? "drawer-visible" : ""}`}>
           <div className="team-content">
+            <a className="text-button" href={`#teams/${dashboard.team.id}`}>← Team conversations</a>
             <TeamHeader team={dashboard.team} activeCount={activeCount} needsCount={dashboard.needsYou.length} onOpenSkills={() => setDrawerOpen(true)} />
+            {dashboard.team.members.some((member) => member.engine.mode === "manual" && member.engine.provider === "demo") && <p className="demo-mode-banner"><strong>Demo Mode</strong> Deterministic simulated provider output — not real AI execution.</p>}
             <TeamSummary team={dashboard.team} sessions={dashboard.sessions} tasks={dashboard.tasks} knowledge={dashboard.knowledge} needsYou={dashboard.needsYou} />
             <ManagerComposer team={dashboard.team} {...(latestSession ? { session: latestSession } : {})} isSubmitting={isSubmitting} {...(composerError ? { error: composerError } : {})} onSubmit={startManagerGoal} />
             {manager && <ManagerCard member={manager} status={statusByMember.get(manager.id) ?? "idle"} skills={skillsFor(manager.id)} knowledgeCount={dashboard.knowledge.length} onAddSkill={() => openSkillsFor(manager.id)} />}
@@ -168,7 +202,7 @@ export const TeamPage = ({ selectionId, workspaceKey, onSwitchWorkspace, onWorks
             <HandoffTimeline tasks={visibleTasks} members={dashboard.team.members} />
             <ActivityFeed activity={visibleActivity} members={dashboard.team.members} />
           </div>
-          {drawerMember && <SkillDrawer open={drawerOpen} team={dashboard.team} member={drawerMember} tasks={dashboard.tasks} attachments={attachments} onClose={() => setDrawerOpen(false)} onMemberChange={setDrawerMemberId} onAttach={attachSkill} />}
+          {drawerMember && <SkillDrawer open={drawerOpen} team={dashboard.team} member={drawerMember} tasks={dashboard.tasks} library={dashboard.skills} assignments={skillStateFor(drawerMember.id)?.assignments ?? []} availability={skillStateFor(drawerMember.id)?.availability ?? []} recommendations={recommendations} onClose={() => setDrawerOpen(false)} onMemberChange={setDrawerMemberId} onAttach={attachSkill} onRemove={removeSkill} />}
         </div>
       </main>
     </div>

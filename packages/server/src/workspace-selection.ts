@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import {
-  ApprovalService, canonicalizeWorkspaceRoot, resolveWorkspaceRoot, WorkspaceService,
+  ApprovalService, canonicalizeWorkspaceRoot, prepareWorkspaceRoot, resolveWorkspaceRoot, WorkspaceService,
   workspaceError, WorkspaceStateError, type WorkspaceRoot,
 } from "@daycrew/core";
 import type { Workspace } from "@daycrew/shared";
@@ -90,13 +90,15 @@ export class WorkspaceSelection {
       this.configError = undefined;
       const candidate = root ?? this.root;
       if (candidate === undefined) throw new WorkspaceStateError("WORKSPACE_NOT_SELECTED");
-      const canonical = canonicalizeWorkspaceRoot(candidate);
+      // Creating may bring the folder into existence; opening never does.
+      const canonical = name === undefined ? canonicalizeWorkspaceRoot(candidate) : prepareWorkspaceRoot(candidate);
       const service = new WorkspaceService(canonical);
       if (name !== undefined) await service.create(name);
       const workspace = await service.load();
       await new ApprovalService(canonical).reconcileAfterRestart();
       const config: AppConfig = {
         version: 1, selectedWorkspace: canonical,
+        ...(this.config.defaultAutonomy ? { defaultAutonomy: this.config.defaultAutonomy } : {}),
         recentWorkspaces: [
           { root: canonical, name: workspace.name, lastOpenedAt: new Date().toISOString() },
           ...this.config.recentWorkspaces.filter((item) => item.root !== canonical),

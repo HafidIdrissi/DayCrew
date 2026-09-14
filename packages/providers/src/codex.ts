@@ -13,6 +13,7 @@ import {
   type AgentHandle,
   type AgentInput,
   type AgentSpec,
+  type EngineModel,
   type ProviderAdapter,
   type ProviderCapabilities,
   type ProviderDetection,
@@ -327,6 +328,7 @@ class CodexAgentHandle implements AgentHandle {
   private readonly cancelledChildren = new WeakSet<ChildProcessWithoutNullStreams>();
   private lastComplete = false;
   private sawTurnCompletion = false;
+  private instructions: string;
 
   constructor(
     private readonly command: ResolvedCommand,
@@ -335,10 +337,15 @@ class CodexAgentHandle implements AgentHandle {
     private readonly schemaPath: string,
   ) {
     this.events = this.queue;
+    this.instructions = spec.instructions;
   }
 
   getSessionIdentity(): string | undefined {
     return this.threadId;
+  }
+
+  async updateInstructions(instructions: string): Promise<void> {
+    this.instructions = instructions;
   }
 
   async send(input: AgentInput): Promise<void> {
@@ -446,7 +453,10 @@ class CodexAgentHandle implements AgentHandle {
       input.type === "goal"
         ? input.text
         : `Message from ${input.message.fromMemberId} about task ${input.message.taskId ?? "none"}:\n${input.message.subject}\n${input.message.body}`;
-    return `${this.spec.instructions}\n\nCurrent DayCrew Member id: ${this.spec.memberId}\nCurrent role: ${this.spec.role}\n\n${inputText}\n\nDayCrew provider rules:\n- This is a read-only planning and review session. Do not modify files, use network tools, publish, push, spend money, or access credentials.\n- Return only the structured object required by the output schema.\n- Use stable lowercase DayCrew ids with hyphens. Use only Member ids supplied in the prompt.\n- A Manager receiving a new goal should create delegated todo tasks and set complete=false.\n- A specialist must preserve ownerId=${this.spec.memberId}, update the supplied task id to review, and set complete=true.\n- A Manager reviewing a completed task should preserve its owner, update it to done, and set complete=true when all work is reviewed.\n- Use an empty tasks array only when no task operation is appropriate.`;
+    if (this.spec.mode === "conversation") {
+      return `${this.instructions}\n\nYou are ${this.spec.memberId}, role: ${this.spec.role}.\nThis is a chat, not a work Goal. Respond to the latest user message using the structured output summary, tasks=[] and complete=true. Do not invent other agents' responses. This is a read-only preview: do not modify files, use network, publish, push, spend money or access credentials.\n\n${inputText}`;
+    }
+    return `${this.instructions}\n\nCurrent DayCrew Member id: ${this.spec.memberId}\nCurrent role: ${this.spec.role}\n\n${inputText}\n\nDayCrew provider rules:\n- This is a read-only planning and review session. Do not modify files, use network tools, publish, push, spend money, or access credentials.\n- Return only the structured object required by the output schema.\n- Use stable lowercase DayCrew ids with hyphens. Use only Member ids supplied in the prompt.\n- A Manager receiving a new goal should create delegated todo tasks and set complete=false.\n- A specialist must preserve ownerId=${this.spec.memberId}, update the supplied task id to review, and set complete=true.\n- A Manager reviewing a completed task should preserve its owner, update it to done, and set complete=true when all work is reviewed.\n- Use an empty tasks array only when no task operation is appropriate.`;
   }
 }
 
@@ -459,6 +469,7 @@ export class CodexProvider implements ProviderAdapter {
     approvals: false,
     interruption: true,
     resume: true,
+    skillCapabilities: ["filesystem.read", "command.run"],
   };
   readonly security: CodexSecurityProfile = {
     mode: "read-only-planning",
@@ -475,27 +486,69 @@ export class CodexProvider implements ProviderAdapter {
 
   constructor(private readonly options: CodexProviderOptions = {}) {}
 
+  /**
+   * `codex debug models` prints the installed catalogue as JSON. Hidden entries are
+   * internal aliases, so only listed, API-supported models are offered. Throws so a
+   * caller can decide between falling back and surfacing the failure.
+   */
+  async listModels(): Promise<EngineModel[]> {
+    const command = await resolveCommand(this.options.command);
+    let result;
+    try {
+      result = await capture(command, ["debug", "models"], this.options.detectionTimeoutMs ?? 10_000);
+    } catch (error) {
+      // Surface a sentence someone can act on, never a raw spawn error.
+      throw new Error((error as NodeJS.ErrnoException).code === "ENOENT"
+        ? "Codex CLI was not found on PATH. Install it, then run `codex login`."
+        : `Codex CLI could not list its models: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (result.code !== 0) {
+      throw new Error(result.stderr.trim() || "Codex CLI could not list its models. Check that it is signed in.");
+    }
+    const start = result.stdout.indexOf("{");
+    const end = result.stdout.lastIndexOf("}");
+    if (start === -1 || end <= start) throw new Error("Codex returned an unreadable model catalogue");
+    const payload = objectValue(JSON.parse(result.stdout.slice(start, end + 1)));
+    const models = Array.isArray(payload?.["models"]) ? (payload["models"] as readonly unknown[]) : [];
+    return models.flatMap((entry): EngineModel[] => {
+      const model = objectValue(entry);
+      const slug = typeof model?.["slug"] === "string" ? model["slug"] : undefined;
+      if (!model || !slug || model["visibility"] === "hide" || model["supported_in_api"] === false) return [];
+      const label = typeof model["display_name"] === "string" && model["display_name"].trim() !== ""
+        ? model["display_name"]
+        : slug;
+      const description = typeof model["description"] === "string" ? model["description"].slice(0, 300) : undefined;
+      return [{ id: slug, label, ...(description === undefined ? {} : { description }) }];
+    });
+  }
+
   async detect(): Promise<ProviderDetection> {
     const timeout = this.options.detectionTimeoutMs ?? 10_000;
     try {
       const command = await resolveCommand(this.options.command);
       const versionResult = await capture(command, ["--version"], timeout);
       if (versionResult.code !== 0) {
-        return { available: false, reason: versionResult.stderr.trim() || "Codex CLI failed" };
+        // The program answered, so it exists; nothing here proves anything about sign-in.
+        return { available: false, installed: true, reason: versionResult.stderr.trim() || "Codex CLI failed to report its version" };
       }
       const version = versionResult.stdout.trim().replace(/^codex-cli\s+/i, "");
       const authResult = await capture(command, ["login", "status"], timeout);
       if (authResult.code !== 0 || !/logged in/i.test(`${authResult.stdout}\n${authResult.stderr}`)) {
         return {
-          available: false,
+          available: false, installed: true, authenticated: false,
           ...(version === "" ? {} : { version }),
-          reason: authResult.stderr.trim() || authResult.stdout.trim() || "Codex is not authenticated",
+          reason: authResult.stderr.trim() || authResult.stdout.trim() || "Codex is not authenticated; run `codex login`",
         };
       }
-      return { available: true, ...(version === "" ? {} : { version }) };
+      return { available: true, installed: true, authenticated: true, ...(version === "" ? {} : { version }) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { available: false, reason: `Codex CLI was not detected: ${message}` };
+      // Only a missing executable proves absence; anything else leaves it unknown.
+      const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
+      return {
+        available: false, ...(missing ? { installed: false } : {}),
+        reason: missing ? "Codex CLI was not found on PATH" : `Codex CLI could not be checked: ${message}`,
+      };
     }
   }
 

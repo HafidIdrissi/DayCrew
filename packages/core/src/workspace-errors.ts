@@ -1,6 +1,7 @@
 export const WORKSPACE_MESSAGES = {
   WORKSPACE_NOT_SELECTED: "No Workspace is open.",
   WORKSPACE_NOT_INITIALIZED: "This folder is not a DayCrew Workspace yet.",
+  WORKSPACE_ALREADY_INITIALIZED: "This folder is already a DayCrew Workspace. Open it instead.",
   WORKSPACE_NOT_FOUND: "DayCrew can no longer find this Workspace.",
   WORKSPACE_STATE_INVALID: "This Workspace contains invalid state and needs attention.",
   WORKSPACE_PERMISSION_DENIED: "DayCrew cannot access this Workspace. Check this folder's permissions.",

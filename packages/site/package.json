@@ -1,0 +1,13 @@
+{
+  "name": "@daycrew/site",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --port 4173 --strictPort",
+    "preview": "vite preview --port 4173 --strictPort"
+  },
+  "devDependencies": {
+    "vite": "^7.1.4"
+  }
+}

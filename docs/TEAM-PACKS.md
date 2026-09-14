@@ -1,5 +1,15 @@
 # Team Pack Format
 
+## Contributor quickstart
+
+1. Copy `team-packs/software-development` to a new kebab-case directory.
+2. Replace the manifest, Team definition, and role instructions with a coherent professional workflow.
+3. Keep every file data or Markdown; never add executable extension code.
+4. Define exactly one Manager and use generic Team/Member/Task concepts rather than custom UI logic.
+5. Run `pnpm check`, include a loader test, and explain why every role is needed.
+
+Contributors do not need to change `packages/core`. A small mature pack is preferred to a large filler roster.
+
 A Team Pack defines a reusable professional Team as data and Markdown instructions.
 Adding one must not require changes to `packages/core`.
 
@@ -50,15 +60,16 @@ Example:
 The zod source of truth is `packages/shared/src/team-pack.ts`. Unknown keys are
 rejected. Schema-version changes require migration documentation.
 
-## Loading policy (M1)
+## Loading and safety
 
-Discovery precedence will be project-local, user-installed, then bundled. The loader
-will validate both JSON files, reject absolute/traversing instruction paths, resolve
-instructions as text, and never execute pack code. A duplicate ID at the same
-precedence is an error rather than an arbitrary choice.
+DayCrew currently ships the reviewed `software-development` pack from the repository
+and installs a validated copy into the selected Workspace. The loader validates both
+JSON files, rejects absolute or traversing instruction paths, resolves instructions as
+text, and never executes pack code. Community pack discovery and distribution are
+intentionally deferred until after the public alpha.
 
 ## Contribution acceptance
 
 A Team Pack contribution must validate, include its role instructions and license,
-avoid secrets/provider-specific tool syntax, and change no core source. The bundled
-packs will live under `team-packs/`; community distribution mechanics are deferred.
+avoid secrets/provider-specific tool syntax, and change no core source. Bundled packs
+live under `team-packs/`; community distribution mechanics are deferred.

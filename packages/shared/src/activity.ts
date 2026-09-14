@@ -20,6 +20,8 @@ export const ActivityKindSchema = z.enum([
   "session.cancelled",
   "member.text",
   "member.tool_used",
+  "skill.conflict",
+  "skill.requirement_missing",
   "usage.updated",
   "session.completed",
   "session.failed",

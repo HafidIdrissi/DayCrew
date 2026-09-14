@@ -101,7 +101,13 @@ describe("local-first application selection", () => {
     expect((await get(server, "/api/teams")).json()).toEqual([]);
     expect((await get(server, "/api/teams/dashboard")).json()).toBeNull();
     const saved = await readFile(path.join(root, ".daycrew", "workspace.json"), "utf8");
-    expect((await post(server, "/api/app/workspace/create", { root, name: "Overwrite" })).statusCode).toBe(400);
+    const conflict = await post(server, "/api/app/workspace/create", { root, name: "Overwrite" });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json().error).toEqual({
+      code: "WORKSPACE_ALREADY_INITIALIZED",
+      message: "This folder is already a DayCrew Workspace. Open it instead.",
+    });
+    expect(conflict.body).not.toContain(root);
     expect(await readFile(path.join(root, ".daycrew", "workspace.json"), "utf8")).toBe(saved);
     expect((await post(server, "/api/app/workspace/open", { root })).statusCode).toBe(200);
   });

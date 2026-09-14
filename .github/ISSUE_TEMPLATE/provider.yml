@@ -1,0 +1,25 @@
+name: Provider adapter proposal
+description: Propose or track an advanced AI Engine adapter.
+title: "[Provider]: "
+labels: [provider, advanced]
+body:
+  - type: input
+    id: engine
+    attributes: { label: AI Engine and supported version }
+    validations: { required: true }
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Enforceable safety boundary
+      description: Explain Workspace confinement, tools, approvals, credentials, cancellation, and restart behavior.
+    validations: { required: true }
+  - type: textarea
+    id: events
+    attributes:
+      label: Event normalization
+      description: Map native events to the provider-neutral DayCrew contract.
+    validations: { required: true }
+  - type: textarea
+    id: tests
+    attributes: { label: Conformance and security tests }
+    validations: { required: true }

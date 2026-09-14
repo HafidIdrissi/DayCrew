@@ -7,6 +7,7 @@ import {
   KnowledgeService,
   ManagerOrchestrator,
   MemoryService,
+  loadSkillDirectory,
   requiresHumanApproval,
   TeamService,
   WorkSessionService,
@@ -15,7 +16,7 @@ import {
   resolveWorkspaceRoot,
   WorkspaceStateError,
 } from "@daycrew/core";
-import { ClaudeCodeProvider, CodexProvider, createMvpMockProvider } from "@daycrew/providers";
+import { ClaudeCodeProvider, CodexProvider, CursorProvider, GrokProvider, createMvpMockProvider } from "@daycrew/providers";
 import type { TeamMember } from "@daycrew/shared";
 
 export const helpText = `DayCrew
@@ -37,7 +38,7 @@ Knowledge and memory:
   daycrew memory show <team> <member> [--path <directory>]
 
 Work:
-  daycrew work start <team> <goal> [--engine <mock|codex|claude-code>] [--allow-unconfined-reads] [--allow-writes] [--path <directory>]
+  daycrew work start <team> <goal> [--engine <mock|codex|claude-code|cursor|grok>] [--allow-unconfined-reads] [--allow-writes] [--path <directory>]
   daycrew work list [--path <directory>]
   daycrew work show <session> [--path <directory>]
   daycrew work pause <session> [--reason <text>] [--path <directory>]
@@ -48,7 +49,13 @@ Work:
   daycrew activity list [session] [--path <directory>]
 
 AI Engines:
-  daycrew provider detect <codex|claude-code>`;
+  daycrew provider detect <codex|claude-code|cursor|gemini|grok>
+
+Skills:
+  daycrew skill validate <skill-directory>
+
+Demo:
+  daycrew demo create [--path <empty-directory>]`;
 
 const optionValues = (args: readonly string[], name: string): string[] => {
   const values: string[] = [];
@@ -97,12 +104,14 @@ export const runCli = async (
   args: readonly string[],
   cwd = process.cwd(),
 ): Promise<string> => {
-  if (args.includes("--version") || args.includes("-v")) return "0.0.0";
+  if (args.includes("--version") || args.includes("-v")) return "0.1.0-alpha.0";
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) return helpText;
 
   const [area, action, ...rest] = args;
-  const root = area === "workspace" && action === "create" && !rest.includes("--path")
-    ? path.resolve(cwd) : area === "provider" ? "" : workspacePath(rest, cwd);
+  const createsWorkspace = (area === "workspace" || area === "demo") && action === "create";
+  const root = createsWorkspace
+    ? path.resolve(cwd, optionValues(rest, "--path")[0] ?? ".")
+    : area === "provider" || area === "skill" ? "" : workspacePath(rest, cwd);
   const values = positionals(rest);
 
   if (area === "workspace" && action === "create") {
@@ -178,7 +187,7 @@ export const runCli = async (
     if (!teamId || !goal) throw new Error("Team and goal are required");
     const team = await new TeamService(root).load(teamId);
     const engine = optionValues(rest, "--engine")[0] ?? "mock";
-    if (engine !== "mock" && engine !== "codex" && engine !== "claude-code") {
+    if (engine !== "mock" && engine !== "codex" && engine !== "claude-code" && engine !== "cursor" && engine !== "grok") {
       throw new Error(`Unknown AI Engine "${engine}"`);
     }
     const provider =
@@ -194,7 +203,17 @@ export const runCli = async (
               // DayCrew autonomy stays authoritative; the adapter never decides policy itself.
               requiresApproval: (action, risk) => requiresHumanApproval(team.autonomy, action, risk),
             })
-          : createMvpMockProvider(team);
+          : engine === "cursor"
+            ? new CursorProvider({
+                allowUnconfinedReads: rest.includes("--allow-unconfined-reads"),
+                allowedWorkspaceRoots: [root],
+              })
+            : engine === "grok"
+              ? new GrokProvider({
+                  allowUnconfinedReads: rest.includes("--allow-unconfined-reads"),
+                  allowedWorkspaceRoots: [root],
+                })
+            : createMvpMockProvider(team);
     return format(
       await new ManagerOrchestrator(root, {
         providers: new Map([[provider.id, provider]]),
@@ -269,11 +288,14 @@ export const runCli = async (
   }
   if (area === "provider" && action === "detect") {
     const providerId = values[0];
-    if (providerId !== "codex" && providerId !== "claude-code") {
+    if (providerId !== "codex" && providerId !== "claude-code" && providerId !== "cursor" && providerId !== "grok") {
       throw new Error(`Unknown AI Engine "${providerId ?? ""}"`);
     }
     const provider =
-      providerId === "claude-code" ? new ClaudeCodeProvider() : new CodexProvider();
+      providerId === "claude-code" ? new ClaudeCodeProvider()
+        : providerId === "cursor" ? new CursorProvider()
+          : providerId === "grok" ? new GrokProvider()
+          : new CodexProvider();
     return format({
       id: provider.id,
       displayName: provider.displayName,
@@ -281,6 +303,27 @@ export const runCli = async (
       security: provider.security,
       detection: await provider.detect(),
     });
+  }
+  if (area === "demo" && action === "create") {
+    await new WorkspaceService(root).create("DayCrew Demo");
+    const installed = await installTeamPack(root, bundledPackPath("software-development"));
+    const team = await new TeamService(root).update(installed.id, {
+      members: installed.members.map((member) => ({
+        ...member,
+        engine: { mode: "manual" as const, provider: "demo" },
+      })),
+    });
+    return format({
+      mode: "demo",
+      label: "Deterministic Demo Mode — simulated provider output, not real AI execution",
+      workspace: await new WorkspaceService(root).load(),
+      team,
+    });
+  }
+  if (area === "skill" && action === "validate") {
+    const directory = values[0];
+    if (!directory) throw new Error("Skill directory is required");
+    return format(await loadSkillDirectory(path.resolve(cwd, directory)));
   }
 
   throw new Error(`Unknown command: ${args.join(" ")}`);

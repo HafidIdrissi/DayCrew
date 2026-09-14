@@ -14,7 +14,7 @@ export default defineConfig({
   },
   test: {
     coverage: { reporter: ["text", "html"] },
-    include: ["packages/**/*.test.ts"],
+    include: ["packages/**/*.test.ts", "packages/**/*.test.tsx"],
     maxWorkers: 1,
     testTimeout: 30_000,
   },

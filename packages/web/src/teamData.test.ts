@@ -44,6 +44,8 @@ const data = (): TeamDashboardData => ({
   tasks: [],
   needsYou: [],
   activity: [],
+  skills: [],
+  memberSkills: [],
 });
 
 describe("Team page state adapters", () => {
@@ -117,8 +119,8 @@ describe("Team page state adapters", () => {
 
   it("selects a member's active task before a general team task", () => {
     const tasks: Task[] = [
-      { id: "task-1", sessionId: "session-1", teamId: "team-1", title: "Plan", description: "", status: "todo", handoffs: [], needsYou: false, createdAt: "2026-09-10T08:00:00.000Z", updatedAt: "2026-09-10T08:00:00.000Z" },
-      { id: "task-2", sessionId: "session-1", teamId: "team-1", title: "Build", description: "", status: "in-progress", ownerId: "developer", handoffs: [], needsYou: false, createdAt: "2026-09-10T08:00:00.000Z", updatedAt: "2026-09-10T08:00:00.000Z" },
+      { id: "task-1", sessionId: "session-1", teamId: "team-1", title: "Plan", description: "", status: "todo", dependsOn: [], handoffs: [], needsYou: false, createdAt: "2026-09-10T08:00:00.000Z", updatedAt: "2026-09-10T08:00:00.000Z" },
+      { id: "task-2", sessionId: "session-1", teamId: "team-1", title: "Build", description: "", status: "in-progress", ownerId: "developer", dependsOn: [], handoffs: [], needsYou: false, createdAt: "2026-09-10T08:00:00.000Z", updatedAt: "2026-09-10T08:00:00.000Z" },
     ];
 
     expect(activeTaskFor(tasks, "developer")?.id).toBe("task-2");

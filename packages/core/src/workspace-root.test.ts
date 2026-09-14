@@ -1,11 +1,11 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { canonicalizeWorkspaceRoot, resolveWorkspaceRoot } from "./workspace-root.js";
+import { canonicalizeWorkspaceRoot, prepareWorkspaceRoot, resolveWorkspaceRoot } from "./workspace-root.js";
 import { statePath } from "./storage.js";
 import { WorkspaceService } from "./workspace.js";
 import { workspaceError } from "./workspace-errors.js";
@@ -52,6 +52,28 @@ describe("canonical WorkspaceRoot", () => {
     await writeFile(file, "");
     for (const candidate of ["packages/server", "", file, path.join(root, "missing")]) {
       expect(() => canonicalizeWorkspaceRoot(candidate)).toThrow();
+    }
+  });
+  it("creates the folder a new Workspace is meant to live in", async () => {
+    const root = await temporary();
+    const missing = path.join(root, "new", "workspace");
+    expect(() => canonicalizeWorkspaceRoot(missing)).toThrow();
+    expect(prepareWorkspaceRoot(missing)).toBe(realpathSync(missing));
+  });
+  it("leaves an existing folder and its contents untouched", async () => {
+    const root = await temporary();
+    await writeFile(path.join(root, "keep.txt"), "kept");
+    expect(prepareWorkspaceRoot(root)).toBe(root);
+    expect(await readFile(path.join(root, "keep.txt"), "utf8")).toBe("kept");
+  });
+  it("refuses to turn a relative path, a file, or a path under a file into a Workspace", async () => {
+    const root = await temporary();
+    const file = path.join(root, "file");
+    await writeFile(file, "");
+    for (const candidate of ["packages/server", "", file, path.join(file, "inside")]) {
+      expect(() => prepareWorkspaceRoot(candidate)).toThrow(
+        expect.objectContaining({ code: "WORKSPACE_PATH_INVALID" }) as Error,
+      );
     }
   });
   it("canonicalizes the selected directory and ignores stale rootPath metadata", async () => {

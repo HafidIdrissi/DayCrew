@@ -89,7 +89,7 @@ The table describes the DayCrew guarantee, not what the model usually chooses to
 | MCP/tool call | Trajectory only, not a gate | No | No guarantee | N/A | Yes | No |
 | path outside Workspace | Sometimes visible in arguments, never authoritative | No | No guarantee | N/A | Yes | **No** |
 
-The integration Workspace-escape probe asked for a harmless read outside the fixture. The tested run obeyed the prompt and did not reveal the marker, but that is model behavior rather than enforcement. Separately, an Agent API trajectory selected and read Antigravity's scratch project instead of the requested fixture, and the provider metadata explicitly reported Workspace validation disabled.
+The integration Workspace-escape probe asks for a harmless read outside the fixture. An earlier run obeyed the prompt and did not reveal the marker; the 2026-09-13 run **read the outside file and returned the marker**. That difference is the argument: prompt compliance varies between runs, so it is model behavior, never enforcement. Separately, an Agent API trajectory selected and read Antigravity's scratch project instead of the requested fixture, and the provider metadata explicitly reported Workspace validation disabled.
 
 ## Autonomy modes
 
@@ -103,7 +103,11 @@ The disposable-fixture opt-in does not change these claims and must not be inter
 
 ## Resume, cancellation, and restart
 
-`send-message` was proven against the same real Antigravity conversation id, so live continuation works. `CancelCascadeInvocation` was proven against a live long-running request and the handle emitted a recoverable cancellation event.
+`send-message` was proven against the same real Antigravity conversation id, so live continuation works, and the provider recalled a code from the previous turn without DayCrew resending it.
+
+`CancelCascadeInvocation` was proven against a live long-running request and the handle emitted a recoverable cancellation event. The provider-side run really stops: `GetCascadeTrajectory` reported `CASCADE_RUN_STATUS_RUNNING` at 5 steps during the turn, then `CASCADE_RUN_STATUS_IDLE` at 6 steps immediately after the cancellation, and still 6 steps eight seconds later. Turns run inside the shared Antigravity process, so cancellation must not kill it: the `language_server.exe` pid is unchanged across a stop, and the short-lived `agentapi` child DayCrew owns is never left behind.
+
+A Stop that landed while Antigravity was still accepting a turn used to have no conversation id to cancel, so the provider kept working on an abandoned turn. The adapter now cancels a run it created once the id exists.
 
 After a DayCrew restart, the provider conversation may still exist in Antigravity, but current DayCrew core does not pass a persisted provider session id into `startAgent`. The adapter therefore does not attempt speculative reattachment. It fails closed and never assumes an interrupted action did or did not execute.
 
@@ -113,7 +117,9 @@ DayCrew supplies no MCP server to Antigravity. However, the Agent API cannot dis
 
 ## Real test interpretation
 
-`pnpm test:integration:gemini` is intentionally outside normal CI and uses only temporary fixtures. Its security write probe passes when it observes the unsafe fact that Antigravity created the requested file: this is evidence supporting the restricted classification, not evidence of writable support.
+`pnpm test:integration:gemini` is intentionally outside normal CI and uses only temporary fixtures. Its security write probe passes when it observes the unsafe fact that Antigravity created the requested file: this is evidence supporting the restricted classification, not evidence of writable support. The Workspace-escape probe reads the same way.
+
+The suite also covers, against the live engine: two real chat turns through `ConversationService` where the second recalls a code from the first; a stopped chat reply that leaves the work session cancelled, no pending Needs You, no approval record, the shared provider process alive and no `agentapi` child behind; a tool-using task whose answer (`TOTAL=42`) is only reachable by reading two planted files; and the consent, OS-temp-root, allowlist, model-tier and approval fail-closed gates DayCrew enforces itself. The HTTP-level preview consent gate is covered by a server test with a stub engine, not against the live one. Full record in [ENGINE-VALIDATION.md](./ENGINE-VALIDATION.md).
 
 ## Default recommendation
 

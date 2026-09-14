@@ -6,6 +6,18 @@ export const IdSchema = z
   .regex(/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/, "Expected a stable identifier");
 export const TimestampSchema = z.string().datetime({ offset: true });
 
+/**
+ * Provider model identifiers are not DayCrew ids: real catalogues use dots, colons
+ * and slashes (`grok-4.6`, `claude-haiku-4-5`, `gpt-5.6-terra`). The pattern stays
+ * strict enough that a stored model id can never smuggle an argument into a CLI engine.
+ */
+export const ModelIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/, "Expected a provider model identifier");
+
 export const AutonomyLevelSchema = z.enum([
   "assist",
   "work-with-approval",
@@ -17,7 +29,7 @@ export const EngineSelectionSchema = z
   .object({
     mode: z.enum(["auto", "manual"]).default("auto"),
     provider: IdSchema.optional(),
-    model: z.string().trim().min(1).optional(),
+    model: ModelIdSchema.optional(),
   })
   .strict()
   .superRefine((selection, context) => {
@@ -50,6 +62,7 @@ export const TeamMemberSchema = z
     instructions: z.string().trim().min(1),
     isManager: z.boolean().default(false),
     engine: EngineSelectionSchema.default({ mode: "auto" }),
+    skillIds: z.array(IdSchema).max(12).optional(),
   })
   .strict();
 export type TeamMember = z.infer<typeof TeamMemberSchema>;
@@ -96,6 +109,14 @@ export const TaskHandoffSchema = z
   .strict();
 export type TaskHandoff = z.infer<typeof TaskHandoffSchema>;
 
+export const TaskSkillAssignmentSchema = z
+  .object({
+    memberId: IdSchema,
+    skillIds: z.array(IdSchema).max(12),
+  })
+  .strict();
+export type TaskSkillAssignment = z.infer<typeof TaskSkillAssignmentSchema>;
+
 export const TaskSchema = z
   .object({
     id: IdSchema,
@@ -108,6 +129,7 @@ export const TaskSchema = z
     dependsOn: z.array(IdSchema).default([]),
     handoffs: z.array(TaskHandoffSchema).default([]),
     needsYou: z.boolean().default(false),
+    skillAssignments: z.array(TaskSkillAssignmentSchema).max(20).optional(),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })
@@ -163,6 +185,12 @@ export const UsageSchema = z
     inputTokens: z.number().int().nonnegative().default(0),
     outputTokens: z.number().int().nonnegative().default(0),
     costUsd: z.number().nonnegative().default(0),
+    /**
+     * The model the engine reports it actually billed this turn against. An agent
+     * asks for a model (often an alias such as `haiku`); this is what the CLI
+     * confirms it ran. Absent when the engine does not report one.
+     */
+    model: ModelIdSchema.optional(),
   })
   .strict();
 export type Usage = z.infer<typeof UsageSchema>;

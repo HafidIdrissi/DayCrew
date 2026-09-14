@@ -1,17 +1,17 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 
-import {
-  PREVIEW_SKILL_CATALOG,
-  activeTaskFor,
-  recommendedSkillFor,
-  type SkillAttachment,
-  type SkillDefinition,
-} from "./skillCatalog";
+import { connectionStore, type ConnectionState } from "./api";
+import { PixelAvatar, StatusMark, statusMeta } from "./avatar";
+import { activeTaskFor } from "./skillCatalog";
 import type {
   ActivityEvent,
   KnowledgeEntry,
+  MemberSkill,
   MemberStatus,
   NeedsYouItem,
+  Skill,
+  SkillCompatibility,
+  SkillRecommendation,
   Task,
   Team,
   TeamMember,
@@ -79,58 +79,94 @@ export const Icon = ({ name, size = 20 }: { name: IconName; size?: number }) => 
   return <svg className="icon" viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" {...common}>{shapes[name]}</svg>;
 };
 
-const initials = (name: string): string =>
-  name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-
-export const Avatar = ({ member, size = "md" }: { member: TeamMember; size?: "sm" | "md" | "lg" }) => (
-  <span className={`avatar avatar-${size}`} data-seed={member.id.length % 4} title={member.name}>
-    {initials(member.name)}
-  </span>
-);
+export const Avatar = ({ member, size = "md", status, showStatus }: {
+  member: TeamMember; size?: "xs" | "sm" | "md" | "lg"; status?: MemberStatus; showStatus?: boolean;
+}) => <PixelAvatar member={member} size={size} {...(status ? { status } : {})} {...(showStatus ? { showStatus } : {})} />;
 
 export const NeedsYouBadge = ({ count }: { count: number }) => (
-  <span className={`needs-badge ${count === 0 ? "is-clear" : ""}`}>
+  <a className={`needs-badge ${count === 0 ? "is-clear" : ""}`} href="#needs-you" aria-label={`${count} Needs You item${count === 1 ? "" : "s"}`}>
     <Icon name={count === 0 ? "check" : "warning"} size={17} />
     {count === 0 ? "All clear" : "Needs You"}
     {count > 0 && <b>{count}</b>}
-  </span>
+  </a>
+);
+export const MemberAvatar = Avatar;
+
+export const TeamCard = ({ team }: { team: Team }) => <a className="recent-workspace" href={`#teams/${team.id}`}><strong>{team.name}</strong><small>{team.members.length} {team.members.length === 1 ? "Member" : "Members"} · {team.description || "Ready for your next Goal"}</small><Icon name="arrow" size={16} /></a>;
+
+export type AppView = "Home" | "Team" | "Tasks" | "Needs You" | "Office" | "Skills" | "Settings";
+
+const navItems: { label: Exclude<AppView, "Settings">; icon: IconName; href: string }[] = [
+  { label: "Home", icon: "home", href: "#home" },
+  { label: "Team", icon: "team", href: "#teams" },
+  { label: "Tasks", icon: "tasks", href: "#tasks" },
+  { label: "Needs You", icon: "warning", href: "#needs-you" },
+  { label: "Office", icon: "office", href: "#office" },
+  { label: "Skills", icon: "sparkle", href: "#skills" },
+];
+
+export const useConnection = (): ConnectionState =>
+  useSyncExternalStore(connectionStore.subscribe, connectionStore.getSnapshot, () => "connecting" as const);
+
+/** Reachability of the local service, stated plainly so a stale screen is never mistaken for a calm one. */
+export const ConnectionStatus = () => {
+  const state = useConnection();
+  if (state === "online") return <span className="connection-status is-online" title="Connected to the local DayCrew service"><i />Local service</span>;
+  if (state === "connecting") return <span className="connection-status is-connecting" role="status"><i />Connecting…</span>;
+  return <span className="connection-status is-offline" role="alert"><i />Local service unreachable</span>;
+};
+
+export const AppSidebar = ({ needsCount, activeView = "Team" }: { needsCount: number; activeView?: AppView }) => (
+  <aside className="app-sidebar">
+    <a className="skip-content" href="#main-content" onClick={(event) => { event.preventDefault(); const main = document.querySelector("main"); if (main) { main.tabIndex = -1; main.focus(); } }}>Skip to content</a>
+    <div className="brand-block">
+      <a className="brand" href="#home" aria-label="DayCrew Home">
+        <Icon name="logo" size={34} />
+        <span>DayCrew</span>
+      </a>
+      <p>Your team. Your workspace.</p>
+    </div>
+    <nav className="primary-nav" aria-label="Primary navigation">
+      {navItems.map((item) => (
+        <a className={item.label === activeView ? "active" : ""} href={item.href} key={item.label} aria-current={item.label === activeView ? "page" : undefined}>
+          <Icon name={item.icon} size={21} />
+          <span>{item.label}</span>
+          {item.label === "Needs You" && needsCount > 0 && <em aria-label={`${needsCount} pending`}>{needsCount}</em>}
+        </a>
+      ))}
+    </nav>
+    <div className="sidebar-lower">
+      <div className="contribute-card">
+        <Icon name="github" size={22} />
+        <div><strong>Open source</strong><a href="https://github.com/daycrew/daycrew/blob/main/CONTRIBUTING.md">Contribute on GitHub <Icon name="arrow" size={14} /></a></div>
+      </div>
+      <a className={`sidebar-settings ${activeView === "Settings" ? "active" : ""}`} href="#settings" aria-current={activeView === "Settings" ? "page" : undefined}><Icon name="settings" size={20} /><span>Settings</span></a>
+    </div>
+  </aside>
 );
 
-export const AppSidebar = ({ needsCount }: { needsCount: number }) => {
-  const navItems: { label: string; icon: IconName }[] = [
-    { label: "Home", icon: "home" },
-    { label: "Teams", icon: "team" },
-    { label: "Tasks", icon: "tasks" },
-    { label: "Office", icon: "office" },
-    { label: "Settings", icon: "settings" },
-  ];
-  return (
-    <aside className="app-sidebar">
-      <div className="brand-block">
-        <a className="brand" href="#teams" aria-label="DayCrew Teams">
-          <Icon name="logo" size={34} />
-          <span>DayCrew</span>
-        </a>
-        <p>AI workers for<br />a brighter tomorrow.</p>
-      </div>
-      <nav className="primary-nav" aria-label="Primary navigation">
-        {navItems.map((item) => (
-          <a className={item.label === "Teams" ? "active" : ""} href={`#${item.label.toLowerCase()}`} key={item.label}>
-            <Icon name={item.icon} size={21} />
-            <span>{item.label}</span>
-            {item.label === "Tasks" && needsCount > 0 && <em>{needsCount}</em>}
-          </a>
-        ))}
-      </nav>
-      <div className="contribute-card">
-        <Icon name="github" size={26} />
-        <strong>Open source,<br />stronger together.</strong>
-        <p>Join our community and help shape DayCrew.</p>
-        <a href="#contribute">Contribute on GitHub <Icon name="arrow" size={15} /></a>
-      </div>
-    </aside>
-  );
-};
+/** One frame for every working view: same sidebar, same Workspace line, same connection truth. */
+export const AppPage = ({ view, needsCount, workspace, onSwitchWorkspace, actions, children }: {
+  view: AppView;
+  needsCount: number;
+  workspace?: Workspace;
+  onSwitchWorkspace?: () => void;
+  actions?: ReactNode;
+  children: ReactNode;
+}) => (
+  <div className="app-frame">
+    <AppSidebar needsCount={needsCount} activeView={view} />
+    <main className="app-main">
+      <header className="top-bar">
+        {workspace && onSwitchWorkspace
+          ? <WorkspaceSwitcher workspace={workspace} onSwitch={onSwitchWorkspace} />
+          : <span className="workspace-switcher is-static">No Workspace open</span>}
+        <div className="top-actions">{actions}<ConnectionStatus /><NeedsYouBadge count={needsCount} /></div>
+      </header>
+      {children}
+    </main>
+  </div>
+);
 
 export const WorkspaceSwitcher = ({ workspace, onSwitch }: { workspace: Workspace; onSwitch: () => void }) => (
   <button className="workspace-switcher" type="button" onClick={onSwitch} aria-label={`Current workspace: ${workspace.name}`}>
@@ -140,7 +176,7 @@ export const WorkspaceSwitcher = ({ workspace, onSwitch }: { workspace: Workspac
   </button>
 );
 
-export const TopBar = ({ workspace, query, onQueryChange, onSwitchWorkspace }: { workspace: Workspace; query: string; onQueryChange: (value: string) => void; onSwitchWorkspace: () => void }) => (
+export const TopBar = ({ workspace, query, needsCount, onQueryChange, onSwitchWorkspace }: { workspace: Workspace; query: string; needsCount: number; onQueryChange: (value: string) => void; onSwitchWorkspace: () => void }) => (
   <header className="top-bar">
     <WorkspaceSwitcher workspace={workspace} onSwitch={onSwitchWorkspace} />
     <div className="top-actions">
@@ -149,15 +185,13 @@ export const TopBar = ({ workspace, query, onQueryChange, onSwitchWorkspace }: {
         <span className="sr-only">Search this team</span>
         <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search this team..." />
       </label>
-      <button className="icon-button notification-button" type="button" aria-label="Notifications">
-        <Icon name="bell" size={21} /><span />
-      </button>
-      <span className="user-avatar" aria-label="Local user">JD</span>
+      <ConnectionStatus />
+      <NeedsYouBadge count={needsCount} />
     </div>
   </header>
 );
 
-export const TeamHeader = ({ team, activeCount, needsCount, onOpenSkills }: { team: Team; activeCount: number; needsCount: number; onOpenSkills: () => void }) => (
+export const TeamHeader =({ team, activeCount, needsCount, onOpenSkills }: { team: Team; activeCount: number; needsCount: number; onOpenSkills: () => void }) => (
   <section className="team-header">
     <div className="team-title-wrap">
       <span className="team-icon"><Icon name="team" size={28} /></span>
@@ -167,7 +201,6 @@ export const TeamHeader = ({ team, activeCount, needsCount, onOpenSkills }: { te
       <span className="working-pill"><i />{activeCount} working</span>
       <NeedsYouBadge count={needsCount} />
       <button className="secondary-button skill-library-button" type="button" onClick={onOpenSkills}><Icon name="sparkle" size={17} /> Skills</button>
-      <button className="icon-button" type="button" aria-label="More team actions">•••</button>
     </div>
   </section>
 );
@@ -197,31 +230,20 @@ export const TeamSummary = (props: { team: Team; sessions: WorkSession[]; tasks:
   </section>
 );
 
-const statusMeta: Record<MemberStatus, { label: string; tone: string }> = {
-  idle: { label: "Idle", tone: "muted" },
-  thinking: { label: "Thinking", tone: "violet" },
-  working: { label: "Working", tone: "green" },
-  waiting: { label: "Waiting", tone: "amber" },
-  "blocked-on-approval": { label: "Waiting for approval", tone: "red" },
-  paused: { label: "Paused", tone: "amber" },
-  completed: { label: "Completed", tone: "green" },
-  failed: { label: "Failed", tone: "red" },
-  stopped: { label: "Stopped", tone: "muted" },
-};
-
 export const MemberStatusBadge = ({ status }: { status: MemberStatus }) => {
   const meta = statusMeta[status];
-  return <span className={`member-status status-${meta.tone}`}><i />{meta.label}</span>;
+  // Shape plus label: colour alone never carries the state.
+  return <span className={`member-status status-${meta.tone}`}><StatusMark status={status} />{meta.label}</span>;
 };
 
 export const EngineBadge = ({ member }: { member: TeamMember }) => {
   const label = member.engine.mode === "auto"
     ? "Auto engine"
-    : [member.engine.provider, member.engine.model].filter(Boolean).join(" · ");
+    : member.engine.provider === "demo" ? "Demo Mode" : [member.engine.provider, member.engine.model].filter(Boolean).join(" · ");
   return <span className="engine-badge" title="AI Engine"><span>AI</span>{label}</span>;
 };
 
-export const SkillChip = ({ skill }: { skill: SkillDefinition }) => <span className="skill-chip">{skill.name}</span>;
+export const SkillChip = ({ skill }: { skill: Skill }) => <span className="skill-chip">{skill.name}</span>;
 
 export const ManagerComposer = ({ team, session, isSubmitting, error, onSubmit }: { team: Team; session?: WorkSession; isSubmitting: boolean; error?: string; onSubmit: (goal: string) => Promise<void> }) => {
   const manager = team.members.find((member) => member.isManager);
@@ -243,11 +265,11 @@ export const ManagerComposer = ({ team, session, isSubmitting, error, onSubmit }
       {session ? (
         <div className="conversation-preview">
           <div className="conversation-line user-line"><span className="user-avatar mini">JD</span><div><b>You</b><small>{formatRelativeTime(session.startedAt)}</small><p>{session.goal}</p></div></div>
-          <div className="conversation-line manager-line"><Avatar member={manager} size="sm" /><div><b>{manager.name}</b><small>Latest update</small><p>{session.summary ?? session.pausedReason ?? sessionMessage(session)}</p></div></div>
+          <div className="conversation-line manager-line"><Avatar member={manager} size="sm" /><div><b>{manager.name}</b><small>Latest update</small><p>{session.status === "failed" ? sessionMessage(session) : session.summary ?? session.pausedReason ?? sessionMessage(session)}</p></div></div>
         </div>
       ) : <div className="composer-welcome"><Avatar member={manager} size="sm" /><p><strong>Your team is ready.</strong> Give your Manager a goal to get started.</p></div>}
       <form className="composer-form" onSubmit={submit}>
-        <button className="attach-button" type="button" aria-label="Attach context"><Icon name="paperclip" size={19} /></button>
+        <span className="attach-button" aria-hidden="true"><Icon name="paperclip" size={19} /></span>
         <input name="goal" aria-label={`Message ${manager.name}`} placeholder={`Message ${manager.name}...`} disabled={isSubmitting} />
         <button className="send-button" type="submit" disabled={isSubmitting} aria-label="Send goal"><Icon name="send" size={18} /></button>
       </form>
@@ -263,10 +285,10 @@ const sessionMessage = (session: WorkSession): string => {
   return "I’m coordinating the team and will keep this page updated as work progresses.";
 };
 
-export const ManagerCard = ({ member, status, skills, knowledgeCount, onAddSkill }: { member: TeamMember; status: MemberStatus; skills: SkillDefinition[]; knowledgeCount: number; onAddSkill: () => void }) => (
+export const ManagerCard = ({ member, status, skills, knowledgeCount, onAddSkill }: { member: TeamMember; status: MemberStatus; skills: Skill[]; knowledgeCount: number; onAddSkill: () => void }) => (
   <article className="manager-card card-surface">
     <div className="manager-profile">
-      <Avatar member={member} size="lg" />
+      <Avatar member={member} size="lg" status={status} showStatus />
       <div className="member-identity"><p className="member-kicker">Team Manager</p><h3>{member.name}</h3><p>{member.role}</p><MemberStatusBadge status={status} /></div>
     </div>
     <div className="manager-meta">
@@ -277,9 +299,9 @@ export const ManagerCard = ({ member, status, skills, knowledgeCount, onAddSkill
   </article>
 );
 
-export const MemberCard = ({ member, status, skills, currentTask, onAddSkill }: { member: TeamMember; status: MemberStatus; skills: SkillDefinition[]; currentTask?: Task; onAddSkill: () => void }) => (
+export const MemberCard = ({ member, status, skills, currentTask, onAddSkill }: { member: TeamMember; status: MemberStatus; skills: Skill[]; currentTask?: Task; onAddSkill: () => void }) => (
   <article className="member-card card-surface">
-    <div className="member-card-top"><Avatar member={member} /><div className="member-identity"><h3>{member.name}</h3><p>{member.role}</p><MemberStatusBadge status={status} /></div></div>
+    <div className="member-card-top"><Avatar member={member} status={status} showStatus /><div className="member-identity"><h3>{member.name}</h3><p>{member.role}</p><MemberStatusBadge status={status} /></div></div>
     <div className="current-work"><span>Current work</span><p>{currentTask?.title ?? "Available for the next task"}</p></div>
     <div className="skill-row compact">{skills.slice(0, 3).map((skill) => <SkillChip skill={skill} key={skill.id} />)}{skills.length === 0 && <span className="no-skills">No skills attached</span>}</div>
     <div className="member-card-footer"><EngineBadge member={member} /><button className="add-skill-link" type="button" onClick={onAddSkill}>+ Add skill</button></div>
@@ -305,6 +327,77 @@ export const HandoffTimeline = ({ tasks, members }: { tasks: Task[]; members: Te
   );
 };
 
+const readableStatus = (status: unknown): string => ({
+  "blocked-on-approval": "waiting for approval",
+  "waiting-for-human": "waiting for your input",
+  "waiting-for-you": "waiting for your input",
+  "in-progress": "in progress",
+  created: "getting ready",
+  planning: "planning",
+  working: "working",
+  thinking: "thinking",
+  idle: "idle",
+  waiting: "waiting",
+  paused: "paused",
+  review: "in review",
+  completed: "complete",
+  done: "complete",
+  failed: "stopped after an error",
+  stopped: "stopped",
+  cancelled: "cancelled",
+  todo: "ready to start",
+}[String(status)] ?? "updated");
+
+const activityCategory = (kind: string): string => ({
+  "member.status_changed": "Team member",
+  "session.status_changed": "Work session",
+  "approval.requested": "Approval",
+  "approval.resolved": "Approval",
+  "approval.decided": "Approval",
+  "approval.action_outcome": "Approval",
+  "needs_you.created": "Needs You",
+  "needs_you.resolved": "Needs You",
+  "task.created": "Task",
+  "task.updated": "Task",
+  "task.handed_off": "Task handoff",
+  "message.sent": "Team update",
+  "member.resumed": "Team member",
+  "member.tool_used": "Team member",
+  "member.text": "Team member",
+  "usage.updated": "AI Engine",
+  "session.completed": "Work session",
+  "session.failed": "Work session",
+}[kind] ?? "Team activity");
+
+const activitySummary = (event: ActivityEvent, members: ReadonlyMap<string, TeamMember>): string => {
+  const memberId = typeof event.data["memberId"] === "string" ? event.data["memberId"] : undefined;
+  const member = memberId ? members.get(memberId) : undefined;
+  if (event.kind === "member.status_changed") {
+    return `${member?.name ?? "A Team Member"} is ${readableStatus(event.data["status"])}`;
+  }
+  if (event.kind === "session.status_changed") return `Work session is ${readableStatus(event.data["to"])}`;
+  if (event.kind === "task.updated") return event.summary.replace(/ to [a-z-]+$/i, ` — ${readableStatus(event.data["status"])}`);
+  if (event.kind === "task.handed_off") {
+    const ownerId = typeof event.data["ownerId"] === "string" ? event.data["ownerId"] : undefined;
+    return event.summary.replace(/ to [^ ]+$/i, ` to ${ownerId ? members.get(ownerId)?.name ?? "a Team Member" : "a Team Member"}`);
+  }
+  if (event.kind === "message.sent") {
+    const fromId = typeof event.data["fromMemberId"] === "string" ? event.data["fromMemberId"] : undefined;
+    const toId = typeof event.data["toMemberId"] === "string" ? event.data["toMemberId"] : undefined;
+    const subject = event.summary.match(/ sent (.+) to [^ ]+$/i)?.[1] ?? "an update";
+    return `${fromId ? members.get(fromId)?.name ?? "A Team Member" : "A Team Member"} sent “${subject}” to ${toId ? members.get(toId)?.name ?? "a Team Member" : "a Team Member"}`;
+  }
+  if (event.kind === "approval.decided") {
+    const decision = event.data["status"] === "approved" ? "approved" : event.data["status"] === "denied" ? "denied" : "resolved";
+    return `You ${decision} the requested action.`;
+  }
+  if (event.kind === "approval.action_outcome") return "The approved action completed.";
+  if (event.kind === "member.resumed") return `${member?.name ?? "A Team Member"} resumed after your decision.`;
+  if (event.kind === "member.tool_used") return `${member?.name ?? "A Team Member"} received the approved result.`;
+  if (event.kind === "session.failed") return "The work session stopped after an error.";
+  return event.summary;
+};
+
 export const ActivityFeed = ({ activity, members }: { activity: ActivityEvent[]; members: TeamMember[] }) => {
   const byId = new Map(members.map((member) => [member.id, member]));
   const visible = [...activity].sort((a, b) => b.sequence - a.sequence).slice(0, 7);
@@ -314,35 +407,57 @@ export const ActivityFeed = ({ activity, members }: { activity: ActivityEvent[];
       {visible.length ? <div className="activity-list">{visible.map((event) => {
         const memberId = typeof event.data["memberId"] === "string" ? event.data["memberId"] : undefined;
         const member = memberId ? byId.get(memberId) : undefined;
-        return <article key={event.id}>{member ? <Avatar member={member} size="sm" /> : <span className={`event-icon event-${event.kind.split(".")[0]}`}><Icon name={event.kind.includes("approval") || event.kind.includes("needs_you") ? "warning" : "activity"} size={15} /></span>}<div><p>{event.summary}</p><small>{event.kind.replaceAll(".", " · ")}</small></div><time dateTime={event.timestamp}>{formatRelativeTime(event.timestamp)}</time></article>;
+        return <article key={event.id}>{member ? <Avatar member={member} size="sm" /> : <span className={`event-icon event-${event.kind.split(".")[0]}`}><Icon name={event.kind.includes("approval") || event.kind.includes("needs_you") ? "warning" : "activity"} size={15} /></span>}<div><p>{activitySummary(event, byId)}</p><small>{activityCategory(event.kind)}</small></div><time dateTime={event.timestamp}>{formatRelativeTime(event.timestamp)}</time></article>;
       })}</div> : <div className="quiet-empty small"><p>Activity will appear as the crew begins work.</p></div>}
     </section>
   );
 };
 
-export const SkillDrawer = ({ open, team, member, tasks, attachments, onClose, onMemberChange, onAttach }: { open: boolean; team: Team; member: TeamMember; tasks: Task[]; attachments: SkillAttachment[]; onClose: () => void; onMemberChange: (memberId: string) => void; onAttach: (attachment: SkillAttachment) => void }) => {
-  const [selectedId, setSelectedId] = useState(recommendedSkillFor(member).id);
+export const SkillDrawer = ({ open, team, member, tasks, library, assignments, availability, recommendations, onClose, onMemberChange, onAttach, onRemove }: {
+  open: boolean; team: Team; member: TeamMember; tasks: Task[]; library: Skill[]; assignments: MemberSkill[];
+  availability: { skill: Skill; compatibility: SkillCompatibility }[]; recommendations: SkillRecommendation[];
+  onClose: () => void; onMemberChange: (memberId: string) => void;
+  onAttach: (scope: "task" | "member", skillId: string, taskId?: string) => Promise<void>;
+  onRemove: (assignment: MemberSkill) => Promise<void>;
+}) => {
+  const [selectedId, setSelectedId] = useState(library[0]?.id ?? "");
   const [scope, setScope] = useState<"task" | "member">("task");
-  const selected = PREVIEW_SKILL_CATALOG.find((skill) => skill.id === selectedId) ?? PREVIEW_SKILL_CATALOG[0]!;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const [recommendationDismissed, setRecommendationDismissed] = useState(false);
+  const recommended = recommendations[0];
+  useEffect(() => {
+    setSelectedId(recommended?.skill.id ?? library[0]?.id ?? "");
+    setRecommendationDismissed(false);
+    setError(undefined);
+  }, [member.id, recommended?.skill.id, library]);
+  const selected = library.find((skill) => skill.id === selectedId) ?? library[0];
   const activeTask = activeTaskFor(tasks, member.id);
-  const existing = attachments.some((item) => item.memberId === member.id && item.skillId === selected.id && item.scope === scope && (scope === "member" || item.taskId === activeTask?.id));
-
+  const compatibility = selected ? availability.find((item) => item.skill.id === selected.id)?.compatibility : undefined;
+  const existing = selected ? assignments.some((item) => item.skill.id === selected.id && item.scope === (scope === "member" ? "permanent" : "temporary") && (scope === "member" || item.taskId === activeTask?.id)) : false;
   if (!open) return null;
-  const attach = () => onAttach({ memberId: member.id, skillId: selected.id, scope, ...(scope === "task" && activeTask ? { taskId: activeTask.id } : {}) });
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true); setError(undefined);
+    try { await action(); } catch (caught) { setError(caught instanceof Error ? caught.message : "DayCrew could not update this Skill."); }
+    finally { setBusy(false); }
+  };
+  const attach = () => selected && run(() => onAttach(scope, selected.id, activeTask?.id));
   return (
     <aside className="skill-drawer" aria-label="Skills Library">
       <div className="drawer-header"><div><span className="drawer-title-icon"><Icon name="sparkle" size={21} /></span><div><h2>Skills Library</h2><p>Add focused know-how to a teammate.</p></div></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close Skills Library"><Icon name="close" size={19} /></button></div>
-      <div className="preview-notice"><span>Preview catalog</span><p>Skill persistence is local until the DayCrew Skills API lands.</p></div>
       <label className="drawer-field">Team member<select value={member.id} onChange={(event) => onMemberChange(event.target.value)}>{team.members.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name} · {candidate.role}</option>)}</select></label>
-      <section className="recommended-skill"><p className="drawer-eyebrow"><Icon name="sparkle" size={14} />Recommended for {member.name}</p><h3>{recommendedSkillFor(member).name}</h3><p>{recommendedSkillFor(member).description}</p><button type="button" onClick={() => setSelectedId(recommendedSkillFor(member).id)}>Select recommendation <Icon name="arrow" size={15} /></button></section>
-      <div className="skills-list" role="listbox" aria-label="Available skills">{PREVIEW_SKILL_CATALOG.map((skill) => <button type="button" role="option" aria-selected={skill.id === selected.id} className={skill.id === selected.id ? "selected" : ""} onClick={() => setSelectedId(skill.id)} key={skill.id}><span className="skill-list-icon"><Icon name="knowledge" size={17} /></span><span><strong>{skill.name}</strong><small>{skill.description}</small></span>{skill.id === selected.id && <span className="selected-check"><Icon name="check" size={14} /></span>}</button>)}</div>
-      <section className="skill-attach-panel">
+      {recommended && !recommendationDismissed && <section className="recommended-skill"><p className="drawer-eyebrow"><Icon name="sparkle" size={14} />Recommended for {member.name}</p><h3>{recommended.skill.name}</h3><p>{recommended.reason}</p>{!recommended.compatibility.compatible && <p className="skill-incompatible">{recommended.compatibility.reason}</p>}<div className="recommendation-actions"><button type="button" disabled={busy || !activeTask || !recommended.compatibility.compatible} onClick={() => void run(() => onAttach("task", recommended.skill.id, activeTask?.id))}>Add for this task</button><button type="button" disabled={busy || !recommended.compatibility.compatible} onClick={() => void run(() => onAttach("member", recommended.skill.id))}>Keep for this Team</button><button type="button" onClick={() => setRecommendationDismissed(true)}>Not now</button></div></section>}
+      {assignments.length > 0 && <section className="attached-skills"><p className="drawer-eyebrow">Skills on {member.name}</p>{assignments.map((assignment) => <div key={`${assignment.scope}-${assignment.taskId ?? "team"}-${assignment.skill.id}`}><span><strong>{assignment.skill.name}</strong><small>{assignment.scope === "permanent" ? "Permanent" : `Temporary · ${tasks.find((task) => task.id === assignment.taskId)?.title ?? assignment.taskId}`}</small></span><button type="button" disabled={busy} onClick={() => void run(() => onRemove(assignment))} aria-label={`Remove ${assignment.skill.name}`}>Remove</button>{!assignment.compatibility.compatible && <p className="skill-incompatible">{assignment.compatibility.reason} {assignment.compatibility.resolution}</p>}</div>)}</section>}
+      <div className="skills-list" role="listbox" aria-label="Available skills">{library.map((skill) => <button type="button" role="option" aria-selected={skill.id === selected?.id} className={skill.id === selected?.id ? "selected" : ""} onClick={() => setSelectedId(skill.id)} key={skill.id}><span className="skill-list-icon"><Icon name="knowledge" size={17} /></span><span><strong>{skill.name}</strong><small>{skill.description}</small></span>{skill.id === selected?.id && <span className="selected-check"><Icon name="check" size={14} /></span>}</button>)}</div>
+      {selected && <section className="skill-attach-panel">
         <div className="selected-skill-summary"><span className="skill-list-icon"><Icon name="knowledge" size={18} /></span><div><small>Selected skill</small><strong>{selected.name}</strong></div></div>
-        <div className="scope-choice"><button className={scope === "task" ? "active" : ""} type="button" onClick={() => setScope("task")} disabled={!activeTask}><strong>For this task</strong><span>{activeTask?.title ?? "No active task"}</span></button><button className={scope === "member" ? "active" : ""} type="button" onClick={() => setScope("member")}><strong>Keep for this teammate</strong><span>Available on future work</span></button></div>
+        <div className="scope-choice"><button className={scope === "task" ? "active" : ""} type="button" onClick={() => setScope("task")} disabled={!activeTask}><strong>For this task</strong><span>{activeTask?.title ?? "No active task"}</span></button><button className={scope === "member" ? "active" : ""} type="button" onClick={() => setScope("member")}><strong>Keep for this Team</strong><span>Permanent for this teammate</span></button></div>
+        {compatibility && !compatibility.compatible && <div className="permission-note incompatible"><Icon name="warning" size={17} /><p><strong>Capabilities unavailable.</strong> {compatibility.reason} {compatibility.resolution}</p></div>}
         <div className="permission-note"><Icon name="warning" size={17} /><p><strong>Permissions stay in control.</strong> A skill adds know-how, not tool access. DayCrew’s <b>{team.autonomy.replaceAll("-", " ")}</b> policy still applies.</p></div>
-        <button className="primary-button" type="button" onClick={attach} disabled={existing || (scope === "task" && !activeTask)}>{existing ? "Already added" : scope === "task" ? "Add for this task" : "Keep for this teammate"}</button>
-      </section>
-      <div className="drawer-contribute"><Icon name="github" size={22} /><div><strong>Build a skill for DayCrew</strong><p>Contribute reusable know-how to the open-source catalog.</p></div><button type="button" aria-label="View contribution guide"><Icon name="arrow" size={17} /></button></div>
+        {error && <p className="inline-error"><Icon name="warning" size={15} />{error}</p>}
+        <button className="primary-button" type="button" onClick={attach} disabled={busy || existing || compatibility?.compatible === false || (scope === "task" && !activeTask)}>{existing ? "Already added" : scope === "task" ? "Add for this task" : "Keep for this Team"}</button>
+      </section>}
+      <a className="drawer-contribute" href="https://github.com/daycrew/daycrew/blob/main/docs/SKILLS.md"><Icon name="github" size={22} /><div><strong>Build a skill for DayCrew</strong><p>Open the contributor guide.</p></div><Icon name="arrow" size={17} /></a>
     </aside>
   );
 };
@@ -364,3 +479,6 @@ export const formatRelativeTime = (timestamp: string): string => {
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 };
+
+export const StateFrame = ({ children, activeView = "Home" }: { children: ReactNode; activeView?: AppView }) =>
+  <div className="app-frame"><AppSidebar needsCount={0} activeView={activeView} /><main className="app-main state-main">{children}</main></div>;

@@ -8,6 +8,7 @@ import {
   TaskStatusSchema,
   UsageSchema,
 } from "./domain.js";
+import { SkillCapabilitySchema } from "./skill.js";
 
 export const ProviderCapabilitiesSchema = z
   .object({
@@ -16,13 +17,19 @@ export const ProviderCapabilitiesSchema = z
     approvals: z.boolean(),
     interruption: z.boolean(),
     resume: z.boolean(),
+    skillCapabilities: z.array(SkillCapabilitySchema).optional(),
   })
   .strict();
 export type ProviderCapabilities = z.infer<typeof ProviderCapabilitiesSchema>;
 
 export const ProviderDetectionSchema = z
   .object({
+    /** Installed, authenticated, and usable for a turn right now. */
     available: z.boolean(),
+    /** Reported separately so Settings can tell "not installed" from "not signed in". */
+    installed: z.boolean().optional(),
+    /** Omitted when the engine exposes no way to check sign-in from outside. */
+    authenticated: z.boolean().optional(),
     version: z.string().optional(),
     reason: z.string().optional(),
   })
@@ -38,6 +45,7 @@ export const AgentSpecSchema = z
     goal: z.string().trim().min(1),
     workspacePath: z.string().trim().min(1),
     model: z.string().trim().min(1).optional(),
+    mode: z.enum(["work", "conversation"]).optional(),
   })
   .strict();
 export type AgentSpec = z.infer<typeof AgentSpecSchema>;
@@ -145,6 +153,8 @@ export interface AgentHandle {
   readonly events: AsyncIterable<AgentEvent>;
   /** Provider-owned conversation identity, when one is known and safe to persist. */
   getSessionIdentity?(): string | undefined;
+  /** Replaces the effective Role + Skill context before a later Task turn. */
+  updateInstructions?(instructions: string): Promise<void>;
   send(input: AgentInput): Promise<void>;
   interrupt(): Promise<void>;
   stop(): Promise<void>;

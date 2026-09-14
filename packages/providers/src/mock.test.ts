@@ -16,6 +16,8 @@ describe("MockProvider", () => {
   it("is always available without credentials", async () => {
     await expect(new MockProvider().detect()).resolves.toEqual({
       available: true,
+      installed: true,
+      authenticated: true,
       version: "0.0.0",
     });
   });

@@ -1,0 +1,32 @@
+name: Skill contribution
+description: Propose a focused, data-only DayCrew Skill.
+title: "[Skill]: "
+labels: [skill, good first issue]
+body:
+  - type: input
+    id: outcome
+    attributes:
+      label: Skill outcome
+      description: What repeatable knowledge or workflow does this add?
+    validations: { required: true }
+  - type: textarea
+    id: scope
+    attributes:
+      label: Instructions and scope
+      description: Summarize the instructions, compatible roles, and deliberate exclusions.
+    validations: { required: true }
+  - type: textarea
+    id: capabilities
+    attributes:
+      label: Required capabilities
+      description: List capability declarations and explain why each is required. Declarations never grant access.
+    validations: { required: true }
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Validation
+      options:
+        - label: The Skill contains no executable JavaScript or shell code.
+          required: true
+        - label: I ran the Skill validator and reviewed docs/SKILLS.md.
+          required: true

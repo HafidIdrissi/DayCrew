@@ -240,7 +240,7 @@ export class WorkSessionService {
   async updateTask(
     sessionId: string,
     taskId: string,
-    update: Partial<Pick<Task, "title" | "description" | "status" | "ownerId" | "dependsOn" | "needsYou">> & { handoffNote?: string },
+    update: Partial<Pick<Task, "title" | "description" | "status" | "ownerId" | "dependsOn" | "needsYou" | "skillAssignments">> & { handoffNote?: string },
   ): Promise<Task> {
     const session = await this.load(sessionId);
     const team = await new TeamService(this.workspaceRoot).load(session.teamId);

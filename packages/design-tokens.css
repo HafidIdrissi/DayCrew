@@ -1,0 +1,46 @@
+/* DayCrew / Iris & Slate. Shared by the application and the public website. */
+:root {
+  --accent: #6355d9;
+  --accent-hover: #5042bd;
+  --accent-soft: #efecff;
+  --accent-line: #cdc5f5;
+  --accent-rgb: 99 85 217;
+  --text-primary: #222635;
+  --text-secondary: #535b70;
+  --text-muted: #646c80;
+  --page-background: #f6f7fb;
+  --panel-background: #ffffff;
+  --panel-subtle: #f0f1f7;
+  --border-default: #e1e3ec;
+  --border-emphasis: #cdd1df;
+  --sidebar-background: #202330;
+  --sidebar-text: #c4c8d8;
+  --mint: #b6eddb;
+  --success-text: #177454;
+  --success-background: #e7f5ef;
+  --warning-text: #925607;
+  --warning-background: #fff5df;
+  --danger-text: #b02e46;
+  --danger-background: #fff0f3;
+  --navy: var(--text-primary);
+  --ink: var(--text-primary);
+  --ink-soft: var(--text-secondary);
+  --muted: var(--text-muted);
+  --blue: var(--accent);
+  --blue-strong: var(--accent-hover);
+  --blue-soft: var(--accent-soft);
+  --line: var(--border-default);
+  --line-strong: var(--border-emphasis);
+  --surface: var(--panel-background);
+  --surface-sunken: var(--panel-subtle);
+  --surface-raised: #fcfcfe;
+  --canvas: var(--page-background);
+  --green: var(--success-text);
+  --amber: var(--warning-text);
+  --red: var(--danger-text);
+  --violet: var(--accent);
+  --focus-ring: 0 0 0 3px rgb(var(--accent-rgb) / 24%);
+  --shadow-card: 0 2px 6px rgb(32 35 48 / 3%);
+  --shadow-raised: 0 12px 32px rgb(32 35 48 / 7%);
+  --shadow-overlay: 0 24px 70px rgb(32 35 48 / 18%);
+}

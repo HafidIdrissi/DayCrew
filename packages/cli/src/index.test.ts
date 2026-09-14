@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -13,6 +13,29 @@ afterEach(async () => {
 });
 
 describe("DayCrew CLI", () => {
+  it("validates a contributor Skill without requiring an initialized Workspace", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "daycrew-cli-skill-"));
+    const skillRoot = path.join(root, "fixture-review");
+    directories.push(root);
+    await mkdir(skillRoot);
+    await writeFile(path.join(skillRoot, "skill.json"), JSON.stringify({
+      id: "fixture-review",
+      name: "Fixture Review",
+      description: "Review a fixture.",
+      version: "1.0.0",
+      tags: ["review"],
+      requiredCapabilities: [],
+      recommendedTools: [],
+      compatibleRoles: ["QA Engineer"],
+    }), "utf8");
+    await writeFile(path.join(skillRoot, "instructions.md"), "Review the fixture carefully.", "utf8");
+
+    expect(JSON.parse(await runCli(["skill", "validate", skillRoot], root))).toMatchObject({
+      id: "fixture-review",
+      instructions: "Review the fixture carefully.",
+    });
+  });
+
   it("discovers an initialized Workspace above the CLI cwd", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "daycrew-cli-discovery-"));
     const nested = path.join(root, "packages", "tooling");
@@ -51,5 +74,16 @@ describe("DayCrew CLI", () => {
     expect(work.session.status).toBe("completed");
     expect(work.tasks.every((task) => task.status === "done")).toBe(true);
     expect(JSON.parse(await runCli(["activity", "list", "--path", root]))).not.toHaveLength(0);
+  });
+
+  it("creates an isolated, explicitly labelled Demo Workspace", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "daycrew-cli-demo-"));
+    directories.push(root);
+    const demo = JSON.parse(await runCli(["demo", "create", "--path", root])) as {
+      mode: string; label: string; team: { members: Array<{ engine: { provider?: string } }> };
+    };
+    expect(demo.mode).toBe("demo");
+    expect(demo.label).toContain("not real AI execution");
+    expect(demo.team.members.every((member) => member.engine.provider === "demo")).toBe(true);
   });
 });

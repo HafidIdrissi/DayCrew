@@ -187,7 +187,9 @@ export const normalizeAntigravityTrajectoryStep = (value: unknown): NormalizedAn
     const response = redactGeminiSecrets(
       stringValue(planner?.["modifiedResponse"]) ?? stringValue(planner?.["response"]) ?? "",
     );
-    if (response) events.push(AgentEventSchema.parse({ type: "text", text: response }));
+    // The envelope stays in assistantText for parsing, but never reaches the reader.
+    const visible = stripGeminiResultEnvelope(response);
+    if (visible) events.push(AgentEventSchema.parse({ type: "text", text: visible }));
     return {
       events,
       ...(response === "" ? {} : { assistantText: response }),
@@ -409,6 +411,18 @@ const parseAgentApiResponse = (stdout: string): JsonObject => {
   return objectValue(payload["response"]) ?? {};
 };
 
+/**
+ * DayCrew asks Antigravity to finish with a machine-readable envelope. That envelope
+ * is scaffolding, not something a person should read in a chat reply, so it is
+ * removed from the text DayCrew displays while the raw text is still parsed for it.
+ */
+export const stripGeminiResultEnvelope = (text: string): string =>
+  text
+    .replace(/DAYCREW_RESULT_START[\s\S]*?DAYCREW_RESULT_END/gi, "")
+    .replace(/DAYCREW_RESULT_START[\s\S]*$/i, "")
+    .replace(/```(?:json)?\s*\{[\s\S]*?"complete"\s*:[\s\S]*?\}\s*```/g, "")
+    .trim();
+
 const parseDayCrewOutput = (text: string): DayCrewGeminiOutput | undefined => {
   const marked = /DAYCREW_RESULT_START\s*([\s\S]*?)\s*DAYCREW_RESULT_END/i.exec(text)?.[1];
   const candidate = (marked ?? text).trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
@@ -434,6 +448,7 @@ class AntigravityAgentHandle implements AgentHandle {
   private generation = 0;
   private emittedSteps = 0;
   private assistantText = "";
+  private instructions: string;
 
   constructor(
     private readonly bridge: AntigravityBridge,
@@ -443,10 +458,15 @@ class AntigravityAgentHandle implements AgentHandle {
     private readonly pollIntervalMs: number,
   ) {
     this.events = this.queue;
+    this.instructions = spec.instructions;
   }
 
   getSessionIdentity(): string | undefined {
     return this.conversationId;
+  }
+
+  async updateInstructions(instructions: string): Promise<void> {
+    this.instructions = instructions;
   }
 
   async send(input: AgentInput): Promise<void> {
@@ -474,6 +494,13 @@ class AntigravityAgentHandle implements AgentHandle {
         if (!id) throw new Error("Antigravity did not create a conversation");
         this.conversationId = id;
       }
+      // A Stop that landed while Antigravity was still accepting the turn had no
+      // conversation id to cancel. Now that one exists, cancel the run it started
+      // instead of leaving it working inside the provider.
+      if (this.stopped || generation !== this.generation) {
+        await this.cancelProviderRun();
+        return;
+      }
       void this.pollTurn(generation);
     } catch (error) {
       this.active = false;
@@ -483,9 +510,25 @@ class AntigravityAgentHandle implements AgentHandle {
   }
 
   async interrupt(): Promise<void> {
-    if (!this.active || !this.conversationId) return;
+    if (!this.active) return;
     this.active = false;
     this.generation += 1;
+    if (!this.conversationId) {
+      // The turn is still being accepted; `send` cancels it as soon as an id exists.
+      this.emit(errorEvent("Gemini / Antigravity agent was cancelled", true));
+      return;
+    }
+    const failure = await this.cancelProviderRun();
+    this.emit(
+      failure === undefined
+        ? errorEvent("Gemini / Antigravity agent was cancelled", true)
+        : errorEvent(`Antigravity cancellation failed: ${failure}`),
+    );
+  }
+
+  /** Cancels the provider-side run. Returns the provider diagnostic when it failed. */
+  private async cancelProviderRun(): Promise<string | undefined> {
+    if (!this.conversationId) return undefined;
     try {
       await fetchConnect(
         this.bridge,
@@ -493,10 +536,9 @@ class AntigravityAgentHandle implements AgentHandle {
         { cascadeId: this.conversationId, killBackgroundTasks: true },
         this.timeoutMs,
       );
-      this.emit(errorEvent("Gemini / Antigravity agent was cancelled", true));
+      return undefined;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.emit(errorEvent(`Antigravity cancellation failed: ${message}`));
+      return error instanceof Error ? error.message : String(error);
     }
   }
 
@@ -611,7 +653,7 @@ class AntigravityAgentHandle implements AgentHandle {
       ? input.text
       : `Message from ${input.message.fromMemberId} about task ${input.message.taskId ?? "none"}:\n${input.message.subject}\n${input.message.body}`;
     return [
-      this.spec.instructions,
+      this.instructions,
       "",
       `Current DayCrew Member id: ${this.spec.memberId}`,
       `Current role: ${this.spec.role}`,
@@ -626,9 +668,13 @@ class AntigravityAgentHandle implements AgentHandle {
       "- Finish with one machine-readable envelope between DAYCREW_RESULT_START and DAYCREW_RESULT_END.",
       "- The envelope is JSON: {\"summary\":string,\"complete\":boolean,\"tasks\":[{\"id\":string,\"title\":string,\"description\":string,\"status\":\"todo\"|\"in-progress\"|\"review\"|\"done\",\"ownerId\":string,\"dependsOn\":string[],\"needsYou\":boolean}]}",
       "- Use stable lowercase DayCrew ids with hyphens. Use only Member ids supplied in the prompt.",
-      "- A Manager should create delegated todo tasks with complete=false only when another Member must work.",
-      `- A specialist must preserve ownerId=${this.spec.memberId}, update the supplied task id to review, and set complete=true.`,
-      "- A Manager reviewing completed work should update it to done and set complete=true when all work is reviewed.",
+      ...(this.spec.mode === "conversation" ? [
+        "- This is a chat. Reply to the latest user message in summary, with tasks=[] and complete=true. Do not invent other agents' responses.",
+      ] : [
+        "- A Manager should create delegated todo tasks with complete=false only when another Member must work.",
+        `- A specialist must preserve ownerId=${this.spec.memberId}, update the supplied task id to review, and set complete=true.`,
+        "- A Manager reviewing completed work should update it to done and set complete=true when all work is reviewed.",
+      ]),
       "- Use an empty tasks array when no task operation is appropriate.",
     ].join("\n");
   }
@@ -651,6 +697,7 @@ export class GeminiProvider implements ProviderAdapter {
     approvals: false,
     interruption: true,
     resume: true,
+    skillCapabilities: ["filesystem.read", "command.run"],
   };
   readonly security: GeminiSecurityProfile = {
     mode: "restricted-read-only-preview",
@@ -680,18 +727,25 @@ export class GeminiProvider implements ProviderAdapter {
       const models = await fetchConnect(bridge, "GetAvailableModels", {}, timeoutMs);
       if (!objectValue(models["response"]) && !objectValue(models["models"])) {
         return {
-          available: false,
+          available: false, installed: true, authenticated: false,
           ...(bridge.version === undefined ? {} : { version: bridge.version }),
-          reason: "Antigravity is installed but its authenticated model catalog is unavailable",
+          reason: "Antigravity is installed but its authenticated model catalog is unavailable; sign in from the Antigravity app",
         };
       }
       this.bridge = bridge;
-      return { available: true, ...(bridge.version === undefined ? {} : { version: bridge.version }) };
+      return { available: true, installed: true, authenticated: true, ...(bridge.version === undefined ? {} : { version: bridge.version }) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      // Discovery is Windows-only, so elsewhere DayCrew genuinely does not know
+      // whether Antigravity is installed. Only an explicit miss proves absence.
+      const missing = /installation was not found/i.test(message);
+      const undiscoverable = /only on Windows/i.test(message);
       return {
         available: false,
-        reason: `Antigravity is not installed, running, authenticated, or usable: ${redactGeminiSecrets(message)}`,
+        ...(missing ? { installed: false } : {}),
+        reason: undiscoverable
+          ? "DayCrew can only discover the Antigravity Agent API on Windows, so its state is unknown here"
+          : `Antigravity Agent API is not installed, running, authenticated, or usable: ${redactGeminiSecrets(message)}`,
       };
     }
   }

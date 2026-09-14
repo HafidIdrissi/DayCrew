@@ -26,8 +26,17 @@ together when a public contract changes.
 - Do not weaken approval or audit behavior.
 - Discuss new infrastructure or dependencies before adding them.
 
-See [AI Engine adapters](./docs/PROVIDER-ADAPTERS.md) and
-[Team Packs](./docs/TEAM-PACKS.md) for the two primary extension contracts.
+## Choose a contribution path
+
+| Level | Contribution | You need to understand |
+|---|---|---|
+| Easy | [Add a Skill](./docs/SKILLS.md#five-minute-skill-quickstart) | JSON metadata, Markdown instructions, capability declarations |
+| Medium | [Create a Team Pack](./docs/TEAM-PACKS.md#contributor-quickstart) | professional roles, data-only manifests, Member instructions |
+| Advanced | [Build a Provider Adapter](./docs/PROVIDER-ADAPTERS.md#contributor-quickstart) | the typed provider boundary, event normalization, safety testing |
+
+You do not need to understand the whole orchestrator for any of these paths. Start with the linked validator and focused package tests, then run the repository gates before opening a pull request.
+
+See [good first issue candidates](./docs/GOOD_FIRST_ISSUES.md) for bounded starter work.
 
 ## Pull requests
 

@@ -1,0 +1,26 @@
+name: Alpha bug report
+description: Report reproducible incorrect behavior in DayCrew.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Give the smallest safe steps, expected result, and actual result.
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: DayCrew version or commit }
+    validations: { required: true }
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, browser, and AI Engine. Remove credentials and private Workspace paths.
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized evidence
+      description: Add relevant logs or screenshots after removing secrets, source contents, and local paths.

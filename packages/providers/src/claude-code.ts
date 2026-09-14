@@ -395,6 +395,10 @@ const normalizeResultMessage = (value: Record<string, unknown>): NormalizedClaud
       numberValue(usage["input_tokens"]) +
       numberValue(usage["cache_creation_input_tokens"]) +
       numberValue(usage["cache_read_input_tokens"]);
+    // `modelUsage` is keyed by the model the CLI actually billed, which resolves an
+    // alias such as `haiku` to its concrete id. Report it only when unambiguous.
+    const billed = Object.keys(objectValue(value["modelUsage"]) ?? {});
+    const model = billed.length === 1 ? billed[0] : undefined;
     events.push(
       AgentEventSchema.parse({
         type: "usage",
@@ -402,6 +406,7 @@ const normalizeResultMessage = (value: Record<string, unknown>): NormalizedClaud
           inputTokens,
           outputTokens: numberValue(usage["output_tokens"]),
           costUsd: numberValue(value["total_cost_usd"]),
+          ...(model === undefined ? {} : { model }),
         },
       }),
     );
@@ -648,13 +653,22 @@ class ClaudeCodeAgentHandle implements AgentHandle {
   private interrupting = false;
   private approvalCounter = 0;
   private stderrTail = "";
+  private instructions: string;
+  private instructionsChangedForLiveProcess = false;
 
   constructor(private readonly configuration: HandleConfiguration) {
     this.events = this.queue;
+    this.instructions = configuration.spec.instructions;
   }
 
   getSessionIdentity(): string | undefined {
     return this.claudeSessionId;
+  }
+
+  async updateInstructions(instructions: string): Promise<void> {
+    if (instructions === this.instructions) return;
+    this.instructions = instructions;
+    this.instructionsChangedForLiveProcess = this.child !== undefined;
   }
 
   async send(input: AgentInput): Promise<void> {
@@ -677,10 +691,14 @@ class ClaudeCodeAgentHandle implements AgentHandle {
     }
 
     const child = await this.ensureProcess();
-    const text =
+    let text =
       parsed.type === "goal"
         ? parsed.text
         : `Message from ${parsed.message.fromMemberId} about task ${parsed.message.taskId ?? "none"}:\n${parsed.message.subject}\n${parsed.message.body}`;
+    if (this.instructionsChangedForLiveProcess) {
+      text = `Updated DayCrew Role and Skill instructions for this Task:\n${this.instructions}\n\nCurrent request:\n${text}`;
+      this.instructionsChangedForLiveProcess = false;
+    }
     child.stdin.write(
       `${JSON.stringify({ type: "user", message: { role: "user", content: text } })}\n`,
     );
@@ -951,7 +969,7 @@ class ClaudeCodeAgentHandle implements AgentHandle {
   private systemPrompt(): string {
     const { spec, options } = this.configuration;
     return [
-      spec.instructions,
+      this.instructions,
       "",
       `Current DayCrew Member id: ${spec.memberId}`,
       `Current role: ${spec.role}`,
@@ -964,9 +982,13 @@ class ClaudeCodeAgentHandle implements AgentHandle {
         : "- This is a read-only session. Do not modify files or run commands that change state.",
       "- Report your result with the StructuredOutput tool using the required schema.",
       "- Use stable lowercase DayCrew ids with hyphens. Use only Member ids supplied in the prompt.",
-      "- A Manager receiving a new goal should create delegated todo tasks and set complete=false.",
-      `- A specialist must preserve ownerId=${spec.memberId}, update the supplied task id to review, and set complete=true.`,
-      "- A Manager reviewing a completed task should preserve its owner, update it to done, and set complete=true when all work is reviewed.",
+      ...(spec.mode === "conversation" ? [
+        "- This is a conversation, not an orchestration Goal. Reply naturally to the user's latest message. Use an empty tasks array and complete=true. Do not invent tasks, handoffs, or messages from other Members.",
+      ] : [
+        "- A Manager receiving a new goal should create delegated todo tasks and set complete=false.",
+        `- A specialist must preserve ownerId=${spec.memberId}, update the supplied task id to review, and set complete=true.`,
+        "- A Manager reviewing a completed task should preserve its owner, update it to done, and set complete=true when all work is reviewed.",
+      ]),
       "- Use an empty tasks array only when no task operation is appropriate.",
     ].join("\n");
   }
@@ -990,6 +1012,7 @@ export class ClaudeCodeProvider implements ProviderAdapter {
     approvals: true,
     interruption: true,
     resume: true,
+    skillCapabilities: ["filesystem.read", "filesystem.write", "command.run", "browser", "network"],
   };
 
   constructor(private readonly options: ClaudeCodeProviderOptions = {}) {}
@@ -1018,9 +1041,10 @@ export class ClaudeCodeProvider implements ProviderAdapter {
       const command = await resolveCommand(this.options.command);
       const versionResult = await capture(command, ["--version"], timeout);
       if (versionResult.code !== 0) {
+        // The program answered, so it exists; nothing here proves anything about sign-in.
         return {
-          available: false,
-          reason: redactSecrets(versionResult.stderr.trim()) || "Claude Code CLI failed",
+          available: false, installed: true,
+          reason: redactSecrets(versionResult.stderr.trim()) || "Claude Code CLI failed to report its version",
         };
       }
       const version = (versionResult.stdout.trim().match(/\d+\.\d+\.\d+/) ?? [])[0] ?? "";
@@ -1034,15 +1058,22 @@ export class ClaudeCodeProvider implements ProviderAdapter {
       }
       if (!loggedIn) {
         return {
-          available: false,
+          available: false, installed: true, authenticated: false,
           ...(version === "" ? {} : { version }),
           reason: "Claude Code is installed but not authenticated; run `claude auth login`",
         };
       }
-      return { available: true, ...(version === "" ? {} : { version }) };
+      return { available: true, installed: true, authenticated: true, ...(version === "" ? {} : { version }) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { available: false, reason: `Claude Code CLI was not detected: ${redactSecrets(message)}` };
+      // Only a missing executable proves absence; anything else leaves it unknown.
+      const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
+      return {
+        available: false, ...(missing ? { installed: false } : {}),
+        reason: missing
+          ? "Claude Code CLI was not found on PATH"
+          : `Claude Code CLI could not be checked: ${redactSecrets(message)}`,
+      };
     }
   }
 

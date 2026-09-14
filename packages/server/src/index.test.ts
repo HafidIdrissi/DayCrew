@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { MockProvider } from "@daycrew/providers";
+import { TeamService, WorkSessionService } from "@daycrew/core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildServer } from "./index.js";
@@ -17,6 +18,67 @@ afterEach(async () => {
 });
 
 describe("local server", () => {
+  it("exposes persisted Member Skills, temporary Task Skills, and side-effect-free recommendations", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "daycrew-api-skills-"));
+    directories.push(root);
+    const server = buildServer({ workspaceRoot: root, appConfigDir: path.join(root, "app-config") });
+    servers.add(server);
+    await server.inject({ method: "POST", url: "/api/workspace", payload: { name: "Skills" } });
+    const teamResponse = await server.inject({
+      method: "POST",
+      url: "/api/teams",
+      payload: {
+        name: "Skill Team",
+        members: [
+          { id: "manager", name: "Manager", role: "Manager", instructions: "Coordinate.", isManager: true, engine: { mode: "auto" } },
+          { id: "sam", name: "Sam", role: "QA Engineer", instructions: "Test.", isManager: false, engine: { mode: "auto" } },
+        ],
+      },
+    });
+    const teamId = teamResponse.json().id as string;
+    const library = await server.inject({ method: "GET", url: "/api/skills" });
+    expect(library.json()).toHaveLength(12);
+
+    const recommendation = await server.inject({
+      method: "GET", url: `/api/teams/${teamId}/members/sam/skill-recommendations`,
+    });
+    expect(recommendation.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ skill: expect.objectContaining({ id: "accessibility-review" }) }),
+    ]));
+    const unchanged = await server.inject({ method: "GET", url: `/api/teams/${teamId}` });
+    expect(unchanged.json().team.members.find((member: { id: string }) => member.id === "sam").skillIds).toBeUndefined();
+
+    await server.inject({
+      method: "POST", url: `/api/teams/${teamId}/members/sam/skills`, payload: { skillId: "documentation" },
+    });
+    const sessions = new WorkSessionService(root);
+    const session = await sessions.create(teamId, "Review a fixture");
+    const task = await sessions.createTask(session.id, { id: "task-42", title: "Accessibility review", ownerId: "sam" });
+    const taskRecommendation = await server.inject({
+      method: "GET",
+      url: `/api/teams/${teamId}/members/sam/skill-recommendations?taskId=${task.id}&sessionId=${session.id}`,
+    });
+    expect(taskRecommendation.json()[0]).toMatchObject({
+      skill: { id: "accessibility-review" },
+      reason: expect.stringContaining("current Task"),
+    });
+    await server.inject({
+      method: "POST", url: `/api/tasks/${task.id}/members/sam/skills`, payload: { skillId: "accessibility-review" },
+    });
+
+    const dashboard = await server.inject({ method: "GET", url: `/api/teams/dashboard?teamId=${teamId}` });
+    const sam = dashboard.json().memberSkills.find((state: { memberId: string }) => state.memberId === "sam");
+    expect(sam.assignments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scope: "permanent", skill: expect.objectContaining({ id: "documentation" }) }),
+      expect.objectContaining({ scope: "temporary", taskId: "task-42", skill: expect.objectContaining({ id: "accessibility-review" }) }),
+    ]));
+
+    await server.inject({ method: "DELETE", url: `/api/teams/${teamId}/members/sam/skills/documentation` });
+    await server.inject({ method: "DELETE", url: `/api/tasks/${task.id}/members/sam/skills/accessibility-review` });
+    const removed = await server.inject({ method: "GET", url: `/api/teams/${teamId}/members/sam/skills` });
+    expect(removed.json()).toEqual([]);
+  });
+
   it("exercises Workspace, Team Pack, Manager goal, and task APIs end to end", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "daycrew-api-"));
     directories.push(root);
@@ -36,6 +98,10 @@ describe("local server", () => {
         })
       ).statusCode,
     ).toBe(200);
+    const installed = await new TeamService(root).load("software-development");
+    await new TeamService(root).update(installed.id, {
+      members: installed.members.map((member) => ({ ...member, engine: { mode: "manual", provider: "mock" } })),
+    });
     const work = await server.inject({
       method: "POST",
       url: "/api/teams/software-development/goals",
@@ -151,5 +217,59 @@ describe("local server", () => {
         }),
       ]),
     );
+  });
+
+  it("proves the public-alpha demo journey through persisted backend state", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "daycrew-alpha-e2e-"));
+    directories.push(root);
+    const server = buildServer({ workspaceRoot: root, appConfigDir: path.join(root, "app-config") });
+    servers.add(server);
+
+    expect((await server.inject({ method: "POST", url: "/api/workspace", payload: { name: "Alpha E2E" } })).statusCode).toBe(200);
+    const installed = (await server.inject({ method: "POST", url: "/api/teams/install", payload: { packId: "software-development" } })).json();
+    const team = await new TeamService(root).update(installed.id, {
+      members: installed.members.map((member: { engine: unknown }) => ({ ...member, engine: { mode: "manual", provider: "demo" } })),
+    });
+    await server.inject({ method: "POST", url: `/api/teams/${team.id}/members/developer/skills`, payload: { skillId: "api-design" } });
+
+    const started = await server.inject({
+      method: "POST",
+      url: `/api/teams/${team.id}/goals`,
+      payload: { goal: "Create a hello endpoint and review the implementation." },
+    });
+    expect(started.statusCode).toBe(200);
+    expect(started.json().session.status).toBe("waiting-for-human");
+    const sessionId = started.json().session.id as string;
+
+    const during = (await server.inject({ method: "GET", url: "/api/tasks/dashboard" })).json();
+    expect(during.tasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ owner: expect.objectContaining({ id: "architect" }), status: "done" }),
+      expect.objectContaining({ owner: expect.objectContaining({ id: "developer" }), status: "in-progress", needsYou: true }),
+    ]));
+    expect(during.needsYou).toEqual([expect.objectContaining({ kind: "approval", provider: "Demo Mode", action: "Modify Workspace files" })]);
+
+    const itemId = during.needsYou[0].id as string;
+    const approved = await server.inject({ method: "POST", url: `/api/needs-you/${itemId}/resolve`, payload: { resolution: "approved" } });
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json()).toMatchObject({ sessionId, status: "approved" });
+
+    const deadline = Date.now() + 10_000;
+    let snapshot: { session: { id: string; status: string }; tasks: Array<{ status: string }>; activity: Array<{ summary: string; kind: string }> } | undefined;
+    do {
+      snapshot = (await server.inject({ method: "GET", url: `/api/work/${sessionId}` })).json();
+      if (snapshot.session.status !== "completed") await new Promise((resolve) => setTimeout(resolve, 20));
+    } while (snapshot.session.status !== "completed" && Date.now() < deadline);
+
+    expect(snapshot.session, JSON.stringify(snapshot, null, 2)).toMatchObject({ id: sessionId, status: "completed" });
+    expect(snapshot.tasks).toHaveLength(3);
+    expect(snapshot.tasks.every((task) => task.status === "done")).toBe(true);
+    expect(snapshot.activity.some((event) => event.kind === "member.resumed")).toBe(true);
+    expect(snapshot.activity.some((event) => event.kind === "task.updated" && event.summary.includes("review"))).toBe(true);
+
+    const home = (await server.inject({ method: "GET", url: "/api/home" })).json();
+    expect(home.dailyBrief.teams[0]).toMatchObject({ completedTasks: 3, activeTasks: 0 });
+    const office = (await server.inject({ method: "GET", url: "/api/office" })).json();
+    expect(office.teams[0]).toMatchObject({ demoMode: true, sessionStatus: "completed" });
+    expect(office.teams[0].members.every((member: { status: string }) => member.status === "completed")).toBe(true);
   });
 });

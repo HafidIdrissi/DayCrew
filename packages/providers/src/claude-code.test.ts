@@ -410,12 +410,39 @@ describe("Claude Code stream normalization", () => {
   });
 });
 
+describe("Claude Code resolved model", () => {
+  it("reports the model the CLI actually billed, so an alias can be distinguished", () => {
+    // Regression: an agent asks for `haiku`; only the CLI knows it ran
+    // claude-haiku-4-5-20251001, and DayCrew must show both.
+    const { events } = normalizeClaudeStreamMessage(JSON.stringify({
+      type: "result", subtype: "success", total_cost_usd: 0.01,
+      usage: { input_tokens: 10, output_tokens: 4 },
+      modelUsage: { "claude-haiku-4-5-20251001": { inputTokens: 10 } },
+      result: "OK",
+    }));
+    expect(events.find((event) => event.type === "usage"))
+      .toMatchObject({ usage: { model: "claude-haiku-4-5-20251001", outputTokens: 4 } });
+  });
+
+  it("omits the model when the CLI billed more than one, rather than guessing", () => {
+    const { events } = normalizeClaudeStreamMessage(JSON.stringify({
+      type: "result", subtype: "success", total_cost_usd: 0.01,
+      usage: { input_tokens: 10, output_tokens: 4 },
+      modelUsage: { "claude-haiku-4-5-20251001": {}, "claude-sonnet-5": {} },
+      result: "OK",
+    }));
+    const usage = events.find((event) => event.type === "usage");
+    expect(usage).toBeTruthy();
+    expect(usage && "usage" in usage ? usage.usage.model : "set").toBeUndefined();
+  });
+});
+
 describe("ClaudeCodeProvider", () => {
   it("detects an authenticated CLI", async () => {
     const scriptPath = await createFakeCli();
     await expect(
       new ClaudeCodeProvider({ command: [process.execPath, scriptPath] }).detect(),
-    ).resolves.toEqual({ available: true, version: "2.1.266" });
+    ).resolves.toEqual({ available: true, installed: true, authenticated: true, version: "2.1.266" });
   });
 
   it("reports an unauthenticated CLI as unavailable", async () => {
