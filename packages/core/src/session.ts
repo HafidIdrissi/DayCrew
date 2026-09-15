@@ -80,6 +80,9 @@ export class WorkSessionService {
   async create(teamId: string, goal: string): Promise<WorkSession> {
     const workspace = await new WorkspaceService(this.workspaceRoot).load();
     const team = await new TeamService(this.workspaceRoot).load(teamId);
+    const supersededFailures = (await this.listNeedsYou("pending"))
+      .filter((item) => item.teamId === teamId && item.kind === "failed-task");
+    await Promise.all(supersededFailures.map((item) => this.resolveNeedsYou(item.id, "dismissed", "A newer Mission was started.")));
     const id = `session-${this.createId()}`;
     const session = await writeJson(
       this.sessionPath(id),
@@ -124,7 +127,7 @@ export class WorkSessionService {
 
   async update(
     sessionId: string,
-    update: Partial<Pick<WorkSession, "status" | "summary" | "pausedReason" | "completedAt" | "usage" | "members" | "turnCount">>,
+    update: Partial<Pick<WorkSession, "status" | "summary" | "failure" | "pausedReason" | "completedAt" | "usage" | "members" | "turnCount">>,
   ): Promise<WorkSession> {
     const current = await this.load(sessionId);
     const next = await writeJson(

@@ -7,6 +7,7 @@ import {
   type Team,
   type TeamMember,
   type Usage,
+  type WorkFailure,
   type WorkSession,
 } from "@daycrew/shared";
 
@@ -28,6 +29,80 @@ export interface WorkResult {
 }
 
 type TurnBoundary = "turn-end" | "done" | "waiting" | "failed";
+
+const workFailure = (error: unknown, engineId?: string): WorkFailure => {
+  const raw = error instanceof Error ? error.message : String(error);
+  const text = raw.replace(/\s+/g, " ").trim();
+  const normalized = text.toLowerCase();
+  const withEngine = <T extends Omit<WorkFailure, "engineId">>(failure: T): WorkFailure => ({
+    ...failure,
+    ...(engineId ? { engineId } : {}),
+  });
+  if (/usage limit|quota|rate limit|too many requests|credits?/.test(normalized)) {
+    return withEngine({
+      kind: "usage-limit",
+      message: text || "The AI Engine has reached its usage limit.",
+      resolution: "Wait for the limit to reset or choose another AI Engine in Settings.",
+      retryable: true,
+    });
+  }
+  if (/not authenticated|not signed in|sign[ -]?in|login/.test(normalized)) {
+    return withEngine({
+      kind: "engine-configuration",
+      message: text || "The AI Engine is not signed in.",
+      resolution: "Sign in with the engine CLI, then detect AI Engines again in Settings.",
+      retryable: true,
+    });
+  }
+  if (/not configured|not installed|enoent|cannot find|could not find/.test(normalized)) {
+    return withEngine({
+      kind: "engine-configuration",
+      message: text || "The AI Engine is not configured on this machine.",
+      resolution: "Install or configure the engine, then detect AI Engines again in Settings.",
+      retryable: true,
+    });
+  }
+  // A sandbox or permission refusal often explains itself with generic words such as
+  // "unavailable", so it is classified before the connectivity rule.
+  if (/permission|restricted|denied|unauthorized/.test(normalized)) {
+    return withEngine({
+      kind: "permission-denied",
+      message: text || "The AI Engine denied a required action.",
+      resolution: "Review the Workspace and engine permission settings before retrying.",
+      retryable: true,
+    });
+  }
+  if (/unavailable|offline|connect|timed? out|timeout/.test(normalized)) {
+    return withEngine({
+      kind: "engine-unavailable",
+      message: text || "The AI Engine is currently unavailable.",
+      resolution: "Check the engine status and connection, then retry the Mission.",
+      retryable: true,
+    });
+  }
+  if (/json|schema|structured|parse|invalid response/.test(normalized)) {
+    return withEngine({
+      kind: "invalid-response",
+      message: text || "The AI Engine returned a response DayCrew could not use.",
+      resolution: "Retry once. If it happens again, choose another model or AI Engine.",
+      retryable: true,
+    });
+  }
+  if (/command|process|exit|spawn|executable/.test(normalized)) {
+    return withEngine({
+      kind: "command-failed",
+      message: text || "The AI Engine command failed.",
+      resolution: "Run the engine's status command in a terminal, then retry the Mission.",
+      retryable: true,
+    });
+  }
+  return withEngine({
+    kind: "unknown",
+    message: text || "The work session stopped after an unknown error.",
+    resolution: "Review recent activity, then retry the Mission or choose another AI Engine.",
+    retryable: true,
+  });
+};
 
 interface AgentRuntime {
   readonly member: TeamMember;
@@ -218,21 +293,32 @@ export class ManagerOrchestrator {
     } catch (error) {
       const latest = await this.sessions.load(session.id);
       if (!["completed", "failed", "cancelled"].includes(latest.status)) {
-        const detail = error instanceof Error ? error.message : String(error);
+        const providerId = manager.engine.mode === "manual"
+          ? manager.engine.provider
+          : this.dependencies.defaultProvider;
+        const failure = workFailure(error, providerId);
         await this.sessions.update(session.id, {
           status: "failed",
-          summary: detail,
+          summary: failure.message,
+          failure,
           completedAt: this.now(),
+        });
+        await this.sessions.setMemberStatus(session.id, manager.id, "failed");
+        await this.sessions.createNeedsYou(session.id, {
+          memberId: manager.id,
+          kind: "failed-task",
+          title: "Mission failed",
+          detail: `${failure.message} ${failure.resolution}`,
         });
         await this.activity.record({
           workspaceId: latest.workspaceId,
           teamId: latest.teamId,
           sessionId: latest.id,
           kind: "session.failed",
-          summary: detail,
+          summary: failure.message,
         });
       }
-      throw error;
+      return this.resultFor(session.id);
     } finally {
       await Promise.all(activeAgents.map(async (runtime) => runtime.handle.stop()));
     }
@@ -501,14 +587,23 @@ export class ManagerOrchestrator {
         );
         delete runtime.awaitingOutcomeApprovalId;
       }
+      const failure = workFailure(event.message, runtime.providerId);
       await this.sessions.setMemberStatus(sessionId, runtime.member.id, "failed", runtime.currentTaskId);
-      await this.sessions.update(sessionId, { status: "failed", summary: event.message, completedAt: this.now() });
+      await this.sessions.update(sessionId, { status: "failed", summary: failure.message, failure, completedAt: this.now() });
       await this.sessions.createNeedsYou(sessionId, {
         memberId: runtime.member.id,
         kind: "failed-task",
         title: `${runtime.member.name} failed`,
-        detail: event.message,
+        detail: `${failure.message} ${failure.resolution}`,
         ...(runtime.currentTaskId === undefined ? {} : { taskId: runtime.currentTaskId }),
+      });
+      await this.activity.record({
+        workspaceId: session.workspaceId,
+        teamId: session.teamId,
+        sessionId,
+        kind: "session.failed",
+        summary: failure.message,
+        data: { memberId: runtime.member.id, failureKind: failure.kind },
       });
       return "failed";
     }
@@ -568,16 +663,26 @@ export class ManagerOrchestrator {
   }
 
   private async failForRunaway(session: WorkSession, memberId: string, detail: string): Promise<void> {
+    const failure = workFailure(detail);
     await this.sessions.update(session.id, {
       status: "failed",
-      summary: detail,
+      summary: failure.message,
+      failure,
       completedAt: this.now(),
     });
     await this.sessions.createNeedsYou(session.id, {
       memberId,
       kind: "failed-task",
       title: "Runaway protection stopped the work session",
-      detail,
+      detail: `${failure.message} ${failure.resolution}`,
+    });
+    await this.activity.record({
+      workspaceId: session.workspaceId,
+      teamId: session.teamId,
+      sessionId: session.id,
+      kind: "session.failed",
+      summary: failure.message,
+      data: { memberId, failureKind: failure.kind },
     });
   }
 }

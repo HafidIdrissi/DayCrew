@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { MockProvider } from "@daycrew/providers";
 import { TeamService, WorkSessionService } from "@daycrew/core";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildServer } from "./index.js";
 
@@ -18,6 +18,56 @@ afterEach(async () => {
 });
 
 describe("local server", () => {
+  it("keeps a failed Mission synchronized across its response, dashboard, board, Office, and Needs You", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "daycrew-api-failed-mission-"));
+    directories.push(root);
+    const provider = new MockProvider();
+    vi.spyOn(provider, "detect").mockResolvedValue({
+      available: false,
+      installed: true,
+      authenticated: false,
+      reason: "AI Engine is not signed in. Run the login command.",
+    });
+    const server = buildServer({
+      workspaceRoot: root,
+      appConfigDir: path.join(root, "app-config"),
+      orchestration: { providers: new Map([[provider.id, provider]]), defaultProvider: provider.id },
+    });
+    servers.add(server);
+    await server.inject({ method: "POST", url: "/api/workspace", payload: { name: "Failure state" } });
+    const created = await server.inject({
+      method: "POST",
+      url: "/api/teams",
+      payload: { name: "Release Crew", members: [{
+        id: "manager", name: "Manager", role: "Manager", instructions: "Coordinate.", isManager: true, engine: { mode: "auto" },
+      }] },
+    });
+    const teamId = created.json().id as string;
+    const response = await server.inject({ method: "POST", url: `/api/teams/${teamId}/goals`, payload: { goal: "Prepare the release" } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      session: { status: "failed", failure: { kind: "engine-configuration", retryable: true } },
+      tasks: [],
+    });
+    const sessionId = response.json().session.id as string;
+    const [home, board, office, dashboard, needs] = await Promise.all([
+      server.inject({ method: "GET", url: "/api/home" }),
+      server.inject({ method: "GET", url: "/api/tasks/dashboard" }),
+      server.inject({ method: "GET", url: "/api/office" }),
+      server.inject({ method: "GET", url: `/api/teams/dashboard?teamId=${teamId}` }),
+      server.inject({ method: "GET", url: "/api/needs-you?status=pending" }),
+    ]);
+    for (const view of [home, board, office, dashboard]) {
+      expect(view.json().missionIssues).toEqual([
+        expect.objectContaining({ sessionId, teamId, goal: "Prepare the release", failure: expect.objectContaining({ kind: "engine-configuration" }) }),
+      ]);
+    }
+    expect(board.json().tasks).toEqual([]);
+    expect(office.json().teams[0]).toMatchObject({ sessionId, sessionStatus: "failed" });
+    expect(needs.json()).toEqual([expect.objectContaining({ sessionId, kind: "failed-task" })]);
+  });
+
   it("exposes persisted Member Skills, temporary Task Skills, and side-effect-free recommendations", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "daycrew-api-skills-"));
     directories.push(root);

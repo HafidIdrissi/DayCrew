@@ -19,6 +19,7 @@ import {
   LoadingTeamPage,
   ManagerCard,
   ManagerComposer,
+  MissionIssues,
   MemberCard,
   SkillDrawer,
   TeamHeader,
@@ -26,7 +27,7 @@ import {
   TopBar,
 } from "./components";
 import { activeTaskFor } from "./skillCatalog";
-import type { MemberSkill, MemberStatus, SkillRecommendation, TeamDashboardData, WorkspaceIssueState } from "./types";
+import type { MemberSkill, MemberStatus, MissionIssue, SkillRecommendation, TeamDashboardData, WorkspaceIssueState } from "./types";
 
 const latestFirst = <T extends { startedAt: string }>(items: T[]): T[] =>
   [...items].sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
@@ -178,6 +179,10 @@ export const TeamPage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }: {
   };
   const openSkillsFor = (memberId: string) => { setDrawerMemberId(memberId); setDrawerOpen(true); };
   const activeCount = [...statusByMember.values()].filter((status) => ["thinking", "working"].includes(status)).length;
+  const retryMission = async (issue: MissionIssue) => {
+    await startGoal(issue.teamId, issue.goal, selectionId);
+    await refresh(true);
+  };
 
   return (
     <div className="app-frame">
@@ -188,6 +193,7 @@ export const TeamPage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }: {
           <div className="team-content">
             <a className="text-button" href={`#teams/${dashboard.team.id}`}>← Team conversations</a>
             <TeamHeader team={dashboard.team} activeCount={activeCount} needsCount={dashboard.needsYou.length} onOpenSkills={() => setDrawerOpen(true)} />
+            <MissionIssues issues={dashboard.missionIssues} onRetry={retryMission} />
             {dashboard.team.members.some((member) => member.engine.mode === "manual" && member.engine.provider === "demo") && <p className="demo-mode-banner"><strong>Demo Mode</strong> Deterministic simulated provider output — not real AI execution.</p>}
             <TeamSummary team={dashboard.team} sessions={dashboard.sessions} tasks={dashboard.tasks} knowledge={dashboard.knowledge} needsYou={dashboard.needsYou} />
             <ManagerComposer team={dashboard.team} {...(latestSession ? { session: latestSession } : {})} isSubmitting={isSubmitting} {...(composerError ? { error: composerError } : {})} onSubmit={startManagerGoal} />

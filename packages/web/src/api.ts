@@ -80,9 +80,12 @@ export const requestJson = async <T>(path: string, init?: RequestInit, selection
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     const code = typeof payload?.error?.code === "string" ? payload.error.code as string : undefined;
-    // Do not trust a legacy backend's raw exception text.
+    const precise = typeof payload?.error?.message === "string" && (
+      code?.startsWith("CONVERSATION_") || code?.startsWith("ENGINE_") || code?.startsWith("MISSION_")
+    ) ? payload.error.message : undefined;
+    // Trust only explicit public error families; a legacy backend's raw exception text stays hidden.
     throw new ApiError(
-      workspaceMessages[code ?? ""] ?? (code === "CONVERSATION_UNAVAILABLE" && typeof payload?.error?.message === "string" ? payload.error.message : "DayCrew could not complete this request. Check the supplied values and try again."),
+      workspaceMessages[code ?? ""] ?? precise ?? "DayCrew could not complete this request. Check the supplied values and try again.",
       response.status, code,
     );
   }
@@ -133,6 +136,15 @@ export const createTeam = (name: string, selectionId: string): Promise<Team> =>
   }, selectionId);
 export const installStarterTeam = (selectionId: string): Promise<Team> =>
   requestJson("/api/teams/install", { method: "POST", body: JSON.stringify({ packId: "software-development" }) }, selectionId);
+
+export const updateTeamMember = (
+  teamId: string,
+  memberId: string,
+  value: Pick<Team["members"][number], "name" | "role" | "instructions" | "engine">,
+  selectionId: string,
+): Promise<Team> => requestJson(`/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(memberId)}`, {
+  method: "PATCH", body: JSON.stringify(value),
+}, selectionId);
 
 export const loadTeamDashboard = async (
   requestedTeamId?: string, selectionId?: string,

@@ -5,6 +5,7 @@ import {
   WorkspaceService,
 } from "@daycrew/core";
 import type { ActivityEvent, NeedsYouItem, Task, Team, WorkSession } from "@daycrew/shared";
+import { currentMissionIssues, type MissionIssue } from "./mission-issues.js";
 
 const ACTIVE_SESSION_STATUSES = new Set<WorkSession["status"]>([
   "created", "planning", "working", "waiting-for-you", "waiting-for-human", "review",
@@ -45,6 +46,7 @@ export interface HomeData {
   readonly needsYou: { readonly count: number; readonly highlights: readonly HomeNeedsYouHighlight[] };
   readonly teams: readonly HomeTeamSummary[];
   readonly recentActivity: readonly HomeActivityItem[];
+  readonly missionIssues: readonly MissionIssue[];
   readonly dailyBrief: {
     readonly teams: readonly { readonly teamId: string; readonly teamName: string; readonly completedTasks: number; readonly reviewTasks: number; readonly activeTasks: number }[];
     readonly needsYou: number;
@@ -171,6 +173,7 @@ export const buildHomeData = async (workspaceRoot: string): Promise<HomeData> =>
     needsYou: { count: pendingNeeds.length, highlights: selectNeedsYouHighlights(pendingNeeds, teamsById) },
     teams: teamSummaries,
     recentActivity,
+    missionIssues: currentMissionIssues(teams, sessions),
     dailyBrief: {
       teams: teams.map((team) => {
         const latestSession = latestFirst(sessions.filter((session) => session.teamId === team.id))[0];

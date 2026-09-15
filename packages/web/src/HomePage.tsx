@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { ApiError, loadHome, providerErrorKind, startGoal } from "./api";
-import { AppPage, Icon, LoadingTeamPage, formatRelativeTime } from "./components";
-import type { HomeData } from "./types";
+import { AppPage, Icon, LoadingTeamPage, MissionIssues, formatRelativeTime } from "./components";
+import type { HomeData, MissionIssue } from "./types";
 
 const statusLabel = (status: HomeData["teams"][number]["status"]): string => {
   if (status === "needs-you") return "Needs You";
@@ -96,9 +96,15 @@ export const HomePage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }: {
   if (!data) return <AppPage view="Home" needsCount={0}><div className="state-main"><section className="state-page error-state"><span className="state-icon"><Icon name="warning" size={30} /></span><h1>DayCrew needs a moment</h1><p>{error}</p><button className="primary-button" onClick={() => void refresh()}>Try again</button></section></div></AppPage>;
 
   const hasActiveWork = data.teams.some((team) => team.currentObjective !== undefined);
+  const retryMission = async (issue: MissionIssue) => {
+    await startGoal(issue.teamId, issue.goal, selectionId);
+    await refresh(true);
+  };
   return <AppPage view="Home" needsCount={data.needsYou.count} workspace={data.workspace} onSwitchWorkspace={onSwitchWorkspace}>
       <div className="home-content">
-        <header className="home-welcome"><p>YOUR WORKSPACE</p><h1>Your work, at a glance.</h1><span>Give your crew a goal, follow the progress, and review what needs your attention.</span></header>
+        <header className="home-welcome"><p>MISSION CONTROL</p><h1>Give a goal. Your crew takes it from here.</h1><span>Your agent team plans, executes, and asks only for decisions that need you.</span></header>
+
+        <MissionIssues issues={data.missionIssues} onRetry={retryMission} />
 
         {data.teams.length === 0 ? <section className="home-empty card-surface"><span className="home-empty-icon"><Icon name="team" size={25} /></span><div><h2>Your Workspace is ready.</h2><p>Create your first AI Team.</p></div><a className="primary-button" href="#teams">Create Team</a></section> : <>
           <ManagerBrief teams={data.teams} selectionId={selectionId} onStarted={() => refresh(true)} />

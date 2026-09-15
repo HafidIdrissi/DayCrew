@@ -79,8 +79,26 @@ export type WorkSession = {
   startedAt: string;
   completedAt?: string;
   summary?: string;
+  failure?: WorkFailure;
   pausedReason?: string;
   members: MemberRuntime[];
+};
+
+export type WorkFailure = {
+  kind: "engine-unavailable" | "engine-configuration" | "usage-limit" | "command-failed" | "permission-denied" | "invalid-response" | "unknown";
+  message: string;
+  resolution: string;
+  retryable: boolean;
+  engineId?: string;
+};
+
+export type MissionIssue = {
+  sessionId: string;
+  teamId: string;
+  teamName: string;
+  goal: string;
+  failedAt: string;
+  failure: WorkFailure;
 };
 
 export type TaskStatus = "todo" | "in-progress" | "review" | "done";
@@ -195,6 +213,7 @@ export type TeamDashboardData = {
   activity: ActivityEvent[];
   skills: Skill[];
   memberSkills: MemberSkillState[];
+  missionIssues: MissionIssue[];
 };
 
 export type HomeData = {
@@ -228,6 +247,7 @@ export type HomeData = {
     tone: "success" | "attention" | "neutral";
     teamId: string;
   }>;
+  missionIssues: MissionIssue[];
   dailyBrief: {
     teams: Array<{
       teamId: string;
@@ -282,6 +302,7 @@ export type TasksData = {
   }>;
   tasks: TaskBoardItem[];
   needsYou: GlobalNeedsYouItem[];
+  missionIssues: MissionIssue[];
 };
 
 export type TaskDetailData = {
@@ -459,4 +480,5 @@ export type OfficeData = {
   workspace: Workspace;
   needsYouCount: number;
   teams: OfficeTeam[];
+  missionIssues: MissionIssue[];
 };

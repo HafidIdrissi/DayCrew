@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiError, loadOffice } from "./api";
+import { ApiError, loadOffice, startGoal } from "./api";
 import { PixelAvatar } from "./avatar";
-import { AppPage, Avatar, Icon, MemberStatusBadge, formatRelativeTime } from "./components";
+import { AppPage, Avatar, Icon, MemberStatusBadge, MissionIssues, formatRelativeTime } from "./components";
 import { OfficeFloor } from "./OfficeFloor";
-import type { OfficeData, OfficeMember, OfficeTeam } from "./types";
+import type { MissionIssue, OfficeData, OfficeMember, OfficeTeam } from "./types";
 import { EmptyState, ErrorState, LoadingState } from "./ui";
 
 const engineLabel = (member: OfficeMember): string => {
@@ -65,6 +65,11 @@ export const OfficePage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }:
   if (!data && !error) return <AppPage view="Office" needsCount={0}><div className="state-main"><LoadingState label="Opening the Office..." /></div></AppPage>;
   if (!data) return <AppPage view="Office" needsCount={0}><div className="state-main"><ErrorState message={error ?? "Office is unavailable."} onRetry={() => void refresh()} /></div></AppPage>;
 
+  const retryMission = async (issue: MissionIssue) => {
+    await startGoal(issue.teamId, issue.goal, selectionId);
+    await refresh(true);
+  };
+
   return <AppPage view="Office" needsCount={data.needsYouCount} workspace={data.workspace} onSwitchWorkspace={onSwitchWorkspace}>
     <div className="office-content">
       <header className="page-heading office-heading">
@@ -78,6 +83,7 @@ export const OfficePage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }:
           <button type="button" className={view === "list" ? "active" : ""} aria-pressed={view === "list"} onClick={() => setView("list")}><Icon name="tasks" size={16} />List</button>
         </div>
       </header>
+      <MissionIssues issues={data.missionIssues} onRetry={retryMission} />
       {data.teams.length === 0
         ? <EmptyState title="The Office is quiet." message="Create a Team to give your first crew a place to work." action={<a className="primary-button" href="#teams">Create Team</a>} />
         : <div className={`office-layout ${detail ? "has-detail" : ""}`}>

@@ -11,6 +11,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const office = (): OfficeData => ({
   workspace: { id: "workspace-1", name: "Demo Workspace", createdAt: "2026-09-12T08:00:00.000Z", updatedAt: "2026-09-12T08:00:00.000Z" },
   needsYouCount: 1,
+  missionIssues: [],
   teams: [{
     id: "software-development",
     name: "Software Development",
@@ -109,5 +110,31 @@ describe("Office", () => {
     stubOffice();
     await requestJson("/api/office");
     expect(connectionStore.getSnapshot()).toBe("online");
+  });
+
+  it("shows the persisted Mission failure with retry and engine recovery actions", async () => {
+    const failed = office();
+    failed.missionIssues = [{
+      sessionId: "session-failed", teamId: "software-development", teamName: "Software Development",
+      goal: "Prepare the release", failedAt: "2026-09-12T08:00:00.000Z",
+      failure: {
+        kind: "usage-limit", message: "Usage limit reached until tomorrow.",
+        resolution: "Wait for the limit to reset or choose another AI Engine in Settings.", retryable: true,
+      },
+    }];
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => ({
+      ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }),
+      json: async () => init?.method === "POST" ? { session: { status: "planning" }, tasks: [] } : failed,
+    } as unknown as Response));
+    vi.stubGlobal("fetch", fetch);
+    render(<OfficePage selectionId="selection" onSwitchWorkspace={() => undefined} onWorkspaceIssue={() => undefined} />);
+
+    expect(await screen.findByText("Usage limit reached until tomorrow.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Engine settings" }).getAttribute("href")).toBe("#settings");
+    fireEvent.click(screen.getByRole("button", { name: "Retry Mission" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      "/api/teams/software-development/goals",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ goal: "Prepare the release" }) }),
+    ));
   });
 });

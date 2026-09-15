@@ -50,4 +50,13 @@ describe("Local API request encoding", () => {
     });
     expect(await createWorkspace("/tmp/project", "Project")).toEqual({ workspace: { initialized: true } });
   });
+
+  it("shows precise public engine errors while hiding unclassified server failures", async () => {
+    const server = connect();
+    server.get("/engine", async (_request, reply) => reply.status(503).send({ error: { code: "ENGINE_UNAVAILABLE", message: "Grok Build is installed but not signed in." } }));
+    server.get("/internal", async (_request, reply) => reply.status(500).send({ error: { code: "INTERNAL", message: "C:\\secret\\auth.json" } }));
+
+    await expect(requestJson("/engine")).rejects.toThrow("Grok Build is installed but not signed in.");
+    await expect(requestJson("/internal")).rejects.toThrow("DayCrew could not complete this request");
+  });
 });

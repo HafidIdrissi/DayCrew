@@ -195,6 +195,25 @@ export const UsageSchema = z
   .strict();
 export type Usage = z.infer<typeof UsageSchema>;
 
+export const WorkFailureSchema = z
+  .object({
+    kind: z.enum([
+      "engine-unavailable",
+      "engine-configuration",
+      "usage-limit",
+      "command-failed",
+      "permission-denied",
+      "invalid-response",
+      "unknown",
+    ]),
+    message: z.string().trim().min(1),
+    resolution: z.string().trim().min(1),
+    retryable: z.boolean(),
+    engineId: IdSchema.optional(),
+  })
+  .strict();
+export type WorkFailure = z.infer<typeof WorkFailureSchema>;
+
 export const WorkSessionSchema = z
   .object({
     id: IdSchema,
@@ -205,6 +224,7 @@ export const WorkSessionSchema = z
     startedAt: TimestampSchema,
     completedAt: TimestampSchema.optional(),
     summary: z.string().optional(),
+    failure: WorkFailureSchema.optional(),
     pausedReason: z.string().optional(),
     usage: UsageSchema.default({}),
     members: z.array(MemberRuntimeSchema).default([]),

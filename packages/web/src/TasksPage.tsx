@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { ApiError, loadTaskDetail, loadTasksDashboard } from "./api";
-import { AppPage, Avatar, Icon, LoadingTeamPage, formatRelativeTime } from "./components";
+import { ApiError, loadTaskDetail, loadTasksDashboard, startGoal } from "./api";
+import { AppPage, Avatar, Icon, LoadingTeamPage, MissionIssues, formatRelativeTime } from "./components";
 import { memberShape, taskColumns as columns, taskStatusLabel as statusLabel } from "./taskUtils";
-import type { TaskBoardItem, TaskDetailData, TaskStatus, TasksData } from "./types";
+import type { MissionIssue, TaskBoardItem, TaskDetailData, TaskStatus, TasksData } from "./types";
 
 export type TaskFilters = {
   teamId: string;
@@ -124,9 +124,14 @@ export const TasksPage = ({ selectionId, routeHash, onSwitchWorkspace, onWorkspa
   if (!data && !error) return <AppPage view="Tasks" needsCount={0}><div className="state-main"><LoadingTeamPage /></div></AppPage>;
   if (!data) return <AppPage view="Tasks" needsCount={0}><div className="state-main"><section className="state-page error-state"><span className="state-icon"><Icon name="warning" size={30} /></span><h1>DayCrew needs a moment</h1><p>{error}</p><button className="primary-button" onClick={() => void refresh()}>Try again</button></section></div></AppPage>;
   const members = data.teams.flatMap((team) => team.members.map((member) => ({ ...member, teamId: team.id, teamName: team.name })));
+  const retryMission = async (issue: MissionIssue) => {
+    await startGoal(issue.teamId, issue.goal, selectionId);
+    await refresh(true);
+  };
   return <AppPage view="Tasks" needsCount={data.needsYou.length} workspace={data.workspace} onSwitchWorkspace={onSwitchWorkspace}>
     <div className="tasks-content">
       <header className="tasks-heading"><div><p>TASKS</p><h1>Task board</h1><span>See what exists, who owns it, and where work is moving.</span></div><nav aria-label="Tasks views"><a className="active" href="#tasks" aria-current="page">Board</a><a href="#needs-you">Needs You{data.needsYou.length > 0 && <b>{data.needsYou.length}</b>}</a></nav></header>
+      <MissionIssues issues={data.missionIssues} onRetry={retryMission} />
       {actionError && <p className="inline-error" role="alert">{actionError}</p>}
       {data.tasks.length === 0 ? <div className="tasks-empty card-surface"><span><Icon name="tasks" size={25} /></span><div><h2>No work yet.</h2><p>Give a Team Manager a goal to create the first Tasks.</p></div><a className="primary-button" href="#teams">Open Teams</a></div> : <>
         <section className="task-filters" aria-label="Task filters">

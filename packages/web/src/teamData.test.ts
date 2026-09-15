@@ -46,6 +46,7 @@ const data = (): TeamDashboardData => ({
   activity: [],
   skills: [],
   memberSkills: [],
+  missionIssues: [],
 });
 
 describe("Team page state adapters", () => {

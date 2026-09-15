@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { MockProvider } from "@daycrew/providers";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ActivityService,
@@ -61,6 +61,68 @@ afterEach(async () => {
 });
 
 describe("Manager orchestration", () => {
+  it("returns a persisted, actionable failure when the selected engine is unavailable", async () => {
+    const { root, team } = await setup();
+    const provider = new MockProvider();
+    vi.spyOn(provider, "detect").mockResolvedValue({
+      available: false,
+      installed: true,
+      authenticated: false,
+      version: "1.0.0",
+      reason: "You've hit your usage limit. Try again tomorrow.",
+    });
+    const orchestrator = new ManagerOrchestrator(
+      root,
+      { providers: new Map([["mock", provider]]), defaultProvider: "mock" },
+      { now, createId },
+    );
+
+    const result = await orchestrator.runGoal(team.id, "Ship the release");
+
+    expect(result.tasks).toEqual([]);
+    expect(result.session).toMatchObject({
+      status: "failed",
+      failure: {
+        kind: "usage-limit",
+        engineId: "mock",
+        retryable: true,
+        message: expect.stringContaining("usage limit"),
+        resolution: expect.stringContaining("another AI Engine"),
+      },
+    });
+    expect(await new WorkSessionService(root).listNeedsYou("pending")).toEqual([
+      expect.objectContaining({
+        sessionId: result.session.id,
+        kind: "failed-task",
+        title: "Mission failed",
+        detail: expect.stringContaining("usage limit"),
+      }),
+    ]);
+  });
+
+  it("blames the sandbox, not the network, when a refusal mentions being unavailable", async () => {
+    const { root, team } = await setup();
+    const provider = new MockProvider();
+    vi.spyOn(provider, "detect").mockResolvedValue({
+      available: false,
+      installed: true,
+      authenticated: true,
+      reason: "Codex is restricted to explicit isolated-workspace opt-in because denied-read restrictions are unavailable",
+    });
+    const orchestrator = new ManagerOrchestrator(
+      root,
+      { providers: new Map([["mock", provider]]), defaultProvider: "mock" },
+      { now, createId },
+    );
+
+    const result = await orchestrator.runGoal(team.id, "Ship the release");
+
+    expect(result.session.failure).toMatchObject({
+      kind: "permission-denied",
+      resolution: expect.stringContaining("permission settings"),
+    });
+  });
+
   it("decomposes, delegates, respects dependencies, reviews, and completes work", async () => {
     const { root, team } = await setup();
     const provider = new MockProvider({

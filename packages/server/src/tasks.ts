@@ -16,6 +16,7 @@ import type {
   Team,
   WorkSession,
 } from "@daycrew/shared";
+import { currentMissionIssues, type MissionIssue } from "./mission-issues.js";
 
 export interface TaskBoardItem {
   readonly id: string;
@@ -60,6 +61,7 @@ export interface TasksData {
   }[];
   readonly tasks: readonly TaskBoardItem[];
   readonly needsYou: readonly GlobalNeedsYouItem[];
+  readonly missionIssues: readonly MissionIssue[];
 }
 
 type WorkspaceTask = Task & { readonly teamId: string };
@@ -270,6 +272,7 @@ export const buildTasksData = async (workspaceRoot: string): Promise<TasksData> 
     })),
     tasks,
     needsYou: globalNeedsYou(sources),
+    missionIssues: currentMissionIssues(sources.teams, sources.sessions),
   };
 };
 

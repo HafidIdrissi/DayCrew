@@ -8,6 +8,7 @@ import type {
   KnowledgeEntry,
   MemberSkill,
   MemberStatus,
+  MissionIssue,
   NeedsYouItem,
   Skill,
   SkillCompatibility,
@@ -18,6 +19,49 @@ import type {
   WorkSession,
   Workspace,
 } from "./types";
+
+const failureLabel: Record<MissionIssue["failure"]["kind"], string> = {
+  "engine-unavailable": "AI Engine unavailable",
+  "engine-configuration": "AI Engine setup required",
+  "usage-limit": "Usage limit reached",
+  "command-failed": "AI Engine command failed",
+  "permission-denied": "Permission denied",
+  "invalid-response": "AI Engine response could not be used",
+  unknown: "Mission failed",
+};
+
+/** One persisted Mission failure, rendered consistently in every operational view. */
+export const MissionIssues = ({ issues, onRetry }: {
+  issues: readonly MissionIssue[];
+  onRetry: (issue: MissionIssue) => Promise<void>;
+}) => {
+  const [retrying, setRetrying] = useState<string>();
+  const [retryError, setRetryError] = useState<string>();
+  if (issues.length === 0) return null;
+  const retry = async (issue: MissionIssue) => {
+    setRetrying(issue.sessionId); setRetryError(undefined);
+    try { await onRetry(issue); }
+    catch (caught) { setRetryError(caught instanceof Error ? caught.message : "DayCrew could not retry this Mission."); }
+    finally { setRetrying(undefined); }
+  };
+  return <section className="mission-issues" aria-label="Mission failures">
+    {issues.map((issue) => <article className="mission-issue" role="alert" key={issue.sessionId}>
+      <span className="mission-issue-icon"><Icon name="warning" size={19} /></span>
+      <div>
+        <small>{issue.teamName} · {failureLabel[issue.failure.kind]}</small>
+        <h2>{issue.goal}</h2>
+        <p>{issue.failure.message}</p>
+        <strong>{issue.failure.resolution}</strong>
+      </div>
+      <div className="mission-issue-actions">
+        {issue.failure.retryable && <button type="button" className="primary-button" disabled={retrying !== undefined} onClick={() => void retry(issue)}>{retrying === issue.sessionId ? "Retrying…" : "Retry Mission"}</button>}
+        <a className="secondary-button" href="#settings">Engine settings</a>
+        <a className="text-button" href={`#teams/${issue.teamId}`}>Open Mission</a>
+      </div>
+    </article>)}
+    {retryError && <p className="inline-error" role="alert">{retryError}</p>}
+  </section>;
+};
 
 type IconName =
   | "activity"
@@ -124,7 +168,7 @@ export const AppSidebar = ({ needsCount, activeView = "Team" }: { needsCount: nu
         <Icon name="logo" size={34} />
         <span>DayCrew</span>
       </a>
-      <p>Your team. Your workspace.</p>
+      <p>Give a goal. Your crew plans, executes, and asks only for decisions.</p>
     </div>
     <nav className="primary-nav" aria-label="Primary navigation">
       {navItems.map((item) => (

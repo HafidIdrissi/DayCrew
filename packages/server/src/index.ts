@@ -29,6 +29,7 @@ import { registerConversations } from "./conversations.js";
 import { EngineService } from "./engines.js";
 import { buildHomeData } from "./home.js";
 import { buildTaskDetail, buildTasksData } from "./tasks.js";
+import { currentMissionIssues } from "./mission-issues.js";
 import { publicWorkspace, WorkspaceSelection, type WorkspaceContext } from "./workspace-selection.js";
 
 export interface ServerOptions {
@@ -209,6 +210,7 @@ export const buildServer = (options: ServerOptions = {}) => {
     ))).flat();
     return {
       workspace: publicWorkspace(context(request).workspace), teams, team, tasks, sessions: work,
+      missionIssues: currentMissionIssues([team], work),
       skills: await new SkillService(root(request)).list(),
       memberSkills: await Promise.all(team.members.map(async (member) => {
         const capabilities = await capabilitiesFor(request, team, member);
@@ -299,6 +301,7 @@ export const buildServer = (options: ServerOptions = {}) => {
     return {
       workspace: publicWorkspace(context(request).workspace),
       needsYouCount: pending.length,
+      missionIssues: currentMissionIssues(teams, allSessions),
       teams: await Promise.all(teams.map(async (team) => {
         const teamSessions = allSessions.filter((session) => session.teamId === team.id)
           .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
