@@ -349,6 +349,7 @@ export class ManagerOrchestrator {
       goal: session.goal,
       workspacePath: this.workspaceRoot,
       ...(member.engine.model === undefined ? {} : { model: member.engine.model }),
+      ...(member.engine.reasoningEffort === undefined ? {} : { reasoningEffort: member.engine.reasoningEffort }),
     });
     return {
       member,

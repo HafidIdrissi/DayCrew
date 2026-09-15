@@ -3,12 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { ApiError, loadHome, providerErrorKind, startGoal } from "./api";
 import { AppPage, Icon, LoadingTeamPage, MissionIssues, formatRelativeTime } from "./components";
 import type { HomeData, MissionIssue } from "./types";
-
-const statusLabel = (status: HomeData["teams"][number]["status"]): string => {
-  if (status === "needs-you") return "Needs You";
-  if (status === "working") return "Working";
-  return "Ready";
-};
+import { HQStudio } from "./HQStudio";
 
 const plural = (count: number, singular: string): string => `${count} ${count === 1 ? singular : `${singular}s`}`;
 
@@ -70,6 +65,7 @@ export const HomePage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }: {
 }) => {
   const [data, setData] = useState<HomeData>();
   const [error, setError] = useState<string>();
+  const [hqView, setHqView] = useState<"living" | "focus">("living");
   const generation = useRef(0);
   const refresh = useCallback(async (quiet = false) => {
     const request = ++generation.current;
@@ -91,27 +87,38 @@ export const HomePage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }: {
     }, 6_000);
     return () => { ++generation.current; window.clearInterval(timer); };
   }, [refresh]);
+  useEffect(() => {
+    if (!data?.workspace.id) return;
+    try { setHqView(window.localStorage.getItem(`daycrew:hq-view:${data.workspace.id}`) === "focus" ? "focus" : "living"); }
+    catch { setHqView("living"); }
+  }, [data?.workspace.id]);
 
   if (!data && !error) return <AppPage view="Home" needsCount={0}><div className="state-main"><LoadingTeamPage /></div></AppPage>;
   if (!data) return <AppPage view="Home" needsCount={0}><div className="state-main"><section className="state-page error-state"><span className="state-icon"><Icon name="warning" size={30} /></span><h1>DayCrew needs a moment</h1><p>{error}</p><button className="primary-button" onClick={() => void refresh()}>Try again</button></section></div></AppPage>;
 
-  const hasActiveWork = data.teams.some((team) => team.currentObjective !== undefined);
+  const activeTeams = data.teams.filter((team) => team.status === "working").length;
+  const chooseView = (view: "living" | "focus") => {
+    setHqView(view);
+    try { window.localStorage.setItem(`daycrew:hq-view:${data.workspace.id}`, view); } catch { /* local preference is optional */ }
+  };
   const retryMission = async (issue: MissionIssue) => {
     await startGoal(issue.teamId, issue.goal, selectionId);
     await refresh(true);
   };
   return <AppPage view="Home" needsCount={data.needsYou.count} workspace={data.workspace} onSwitchWorkspace={onSwitchWorkspace}>
       <div className="home-content">
-        <header className="home-welcome"><p>MISSION CONTROL</p><h1>Give a goal. Your crew takes it from here.</h1><span>Your agent team plans, executes, and asks only for decisions that need you.</span></header>
+        <header className="home-welcome hq-welcome"><div><p>DAYCREW HQ · {data.workspace.name}</p><h1>Your teams, together at work.</h1><span>{activeTeams ? `${activeTeams} Team${activeTeams === 1 ? "" : "s"} working.` : "No Team is working right now."} {data.needsYou.count ? `${data.needsYou.count} item${data.needsYou.count === 1 ? " needs" : "s need"} your decision.` : "Nothing needs your decision."}</span></div><div className="hq-view-switch" role="group" aria-label="HQ view"><button type="button" aria-pressed={hqView === "living"} onClick={() => chooseView("living")}>Living view</button><button type="button" aria-pressed={hqView === "focus"} onClick={() => chooseView("focus")}>Focus view</button></div></header>
 
         <MissionIssues issues={data.missionIssues} onRetry={retryMission} />
 
         {data.teams.length === 0 ? <section className="home-empty card-surface"><span className="home-empty-icon"><Icon name="team" size={25} /></span><div><h2>Your Workspace is ready.</h2><p>Create your first AI Team.</p></div><a className="primary-button" href="#teams">Create Team</a></section> : <>
           <ManagerBrief teams={data.teams} selectionId={selectionId} onStarted={() => refresh(true)} />
+          <section className={`hq-studios ${hqView === "focus" ? "focus-view" : "living-view"}`} aria-label="Team studios"><div className="home-section-heading"><div><span className="home-heading-icon tone-blue"><Icon name="team" size={18} /></span><h2>Team studios</h2></div><a href="#teams">All Teams <Icon name="arrow" size={14} /></a></div><div className="hq-studio-grid">{data.teams.map((team) => <HQStudio key={team.id} team={team} focus={hqView === "focus"} />)}</div></section>
+          <section className="hq-managers-room card-surface"><div className="hq-managers-illustration" aria-hidden="true"><span /><i /><i /><i /></div><div><small>MANAGERS ROOM</small><h2>One table for cross-team decisions.</h2><p>Meeting execution and shared context arrive in phase 2. Your existing Teams are ready to be linked then.</p></div><a className="secondary-button" href="#meetings">View meeting room</a></section>
           <div className="home-priority-grid">
             <section className="home-card needs-you-card card-surface" id="home-needs-you">
               <div className="home-section-heading"><div><span className="home-heading-icon tone-amber"><Icon name="warning" size={18} /></span><h2>Needs You</h2></div><b>{data.needsYou.count}</b></div>
-              {data.needsYou.highlights.length === 0 ? <div className="home-card-empty"><Icon name="check" size={21} /><div><strong>You’re all caught up.</strong><p>Nothing needs your attention right now.</p></div></div> : <div className="needs-home-list">{data.needsYou.highlights.map((item) => <article key={item.id}><div><span>{item.teamName} · {item.kind}</span><h3>{item.title}</h3><p>{item.detail}</p></div><a href={`#teams/${item.teamId}`}>Review <Icon name="arrow" size={14} /></a></article>)}</div>}
+              {data.needsYou.highlights.length === 0 ? <div className="home-card-empty"><Icon name="check" size={21} /><div><strong>You’re all caught up.</strong><p>Nothing needs your attention right now.</p></div></div> : <div className="needs-home-list">{data.needsYou.highlights.map((item) => <article key={item.id}><div><span>{item.teamName} · {item.kind}</span><h3>{item.title}</h3><p>{item.detail}</p></div><a href="#needs-you">Review <Icon name="arrow" size={14} /></a></article>)}</div>}
               {data.needsYou.count > data.needsYou.highlights.length && <a className="home-text-link" href="#needs-you">View all Needs You items <Icon name="arrow" size={14} /></a>}
             </section>
 
@@ -121,12 +128,6 @@ export const HomePage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }: {
             </section>
           </div>
 
-
-          <section className="home-section teams-home-section">
-            <div className="home-section-heading"><div><span className="home-heading-icon tone-blue"><Icon name="team" size={18} /></span><h2>Your Teams</h2></div><a href="#teams">View Teams <Icon name="arrow" size={14} /></a></div>
-            {!hasActiveWork && <div className="home-inline-empty"><strong>Your teams are ready.</strong><span>Give a Manager a goal to begin.</span></div>}
-            <div className="home-team-grid">{data.teams.map((team) => <article className="home-team-card card-surface" key={team.id}><div className="home-team-card-head"><h3>{team.name} {team.demoMode && <span className="demo-inline">Demo Mode</span>}</h3><span className={`home-status status-${team.status}`}><i />{statusLabel(team.status)}</span></div><p className="home-working"><i />{plural(team.workingMembers, "working Member")}</p><div className="home-objective"><span>Current work</span><strong>{team.currentObjective ?? "No active work"}</strong></div>{team.progress && <div className="home-progress"><div><span>Task progress</span><b>{team.progress.completed} of {team.progress.total} complete</b></div><progress value={team.progress.completed} max={team.progress.total} /></div>}<footer><span>Manager: <b>{team.manager.name}</b></span><a href={`#teams/${team.id}`}>Open Team <Icon name="arrow" size={14} /></a></footer></article>)}</div>
-          </section>
 
           <section className="home-section home-card recent-home-activity card-surface">
             <div className="home-section-heading"><div><span className="home-heading-icon tone-green"><Icon name="activity" size={18} /></span><h2>Recent Activity</h2></div></div>

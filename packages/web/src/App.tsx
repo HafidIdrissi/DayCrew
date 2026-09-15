@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { ApiError, createTeam, getApp, installStarterTeam, listTeams } from "./api";
-import { ErrorTeamPage, Icon, LoadingTeamPage, StateFrame, TeamCard } from "./components";
+import { ErrorTeamPage, Icon, LoadingTeamPage, NavigationHomeProvider, StateFrame, TeamCard } from "./components";
 import { TeamPage } from "./TeamPage";
 import { ChatPage } from "./ChatPage";
 import { HomePage } from "./HomePage";
@@ -11,6 +11,7 @@ import { NeedsYouPage } from "./NeedsYouPage";
 import { SkillsPage } from "./SkillsPage";
 import { OnboardingPage } from "./OnboardingPage";
 import { SettingsPage } from "./SettingsPage";
+import { MeetingsPage } from "./MeetingsPage";
 import { WorkspacePicker } from "./WorkspacePicker";
 import type { AppState, Team } from "./types";
 
@@ -98,16 +99,20 @@ export const App = () => {
   if (error) return <StateFrame><ErrorTeamPage message={error} onRetry={() => void refresh()} /></StateFrame>;
   if (!app) return <StateFrame><LoadingTeamPage /></StateFrame>;
   if (choosing || !app.workspace.initialized) return <WorkspacePicker app={app} onSelected={selected} onCancel={() => setChoosing(false)} />;
+  const page = (() => {
   if (hash === "#onboarding") return <OnboardingPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} />;
   if (hash === "" || hash === "#home") return <HomePage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
   // Needs You used to live under the Tasks route; the old link stays valid.
   if (hash === "#needs-you" || hash === "#tasks/needs-you") return <NeedsYouPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
   if (hash === "#tasks" || hash.startsWith("#tasks/")) return <TasksPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} routeHash={hash} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
   if (hash === "#office") return <OfficePage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
+  if (hash === "#meetings") return <MeetingsPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
   if (hash === "#skills") return <SkillsPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
   if (hash === "#settings") return <SettingsPage key={app.workspace.selectionId} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
   if (!hash.startsWith("#teams/")) return <TeamsPage key={app.workspace.selectionId} app={app} onSwitch={() => setChoosing(true)} onWorkspaceIssue={recover} />;
-  const chatTeam = hash.match(/^#teams\/([a-z0-9_-]+)$/)?.[1];
-  if (chatTeam) return <ChatPage key={app.workspace.selectionId + chatTeam} teamId={chatTeam} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
+  const chatTeam = hash.match(/^#teams\/([a-z0-9_-]+)(?:\/discussion|\/members\/([a-z0-9_-]+))?$/);
+  if (chatTeam) return <ChatPage key={app.workspace.selectionId + chatTeam[1]} teamId={chatTeam[1]!} {...(chatTeam[2] ? { initialMemberId: chatTeam[2] } : {})} selectionId={app.workspace.selectionId} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
   return <TeamPage key={app.workspace.selectionId + hash} selectionId={app.workspace.selectionId} workspaceKey={app.workspace.key!} onSwitchWorkspace={() => setChoosing(true)} onWorkspaceIssue={recover} />;
+  })();
+  return <NavigationHomeProvider selectionId={app.workspace.selectionId}>{page}</NavigationHomeProvider>;
 };

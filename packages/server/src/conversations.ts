@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ConversationError, ConversationService, TeamService, WorkSessionService, requiresHumanApproval, type OrchestratorDependencies } from "@daycrew/core";
 import { ClaudeCodeProvider, CodexProvider, CursorProvider, GeminiProvider, GrokProvider, MockProvider } from "@daycrew/providers";
-import { TeamMemberSchema, ChatMemberInputSchema, ChatSendInputSchema, findEngine, validateEngineModel } from "@daycrew/shared";
+import { TeamMemberSchema, ChatMemberInputSchema, ChatSendInputSchema, findEngine, validateEngineModel, validateEngineReasoning } from "@daycrew/shared";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { EngineService } from "./engines.js";
 type Params = { teamId: string; id: string };
@@ -24,16 +24,19 @@ export const registerConversations = (server: FastifyInstance, root: (r: Fastify
     // Auto stays pinned to the one engine whose safety boundary is enforceable.
     const engine = findEngine(input.engine.mode === "auto" ? "claude-code" : input.engine.provider);
     if (!engine) throw new ConversationError("Choose one of the available AI Engines.");
-    if (input.engine.mode === "auto" && input.engine.model !== undefined) {
-      throw new ConversationError("Auto uses the engine default model. Switch to a manual engine to choose one.");
+    if (input.engine.mode === "auto" && (input.engine.model !== undefined || input.engine.reasoningEffort !== undefined)) {
+      throw new ConversationError("Auto uses engine defaults. Switch to a manual engine to choose a model or reasoning effort.");
     }
+    const catalog = input.engine.model !== undefined || input.engine.reasoningEffort !== undefined
+      ? await engines.models(engine.id).catch(() => undefined) : undefined;
     if (input.engine.model !== undefined) {
       // Validate against the live catalogue when one is readable, so a typo in a
       // listed engine is caught before the first turn fails.
-      const catalog = await engines.models(engine.id).catch(() => undefined);
       const verdict = validateEngineModel(engine, input.engine.model, catalog?.source === "live" ? catalog.models : undefined);
       if (!verdict.ok) throw new ConversationError(verdict.message);
     }
+    const reasoning = validateEngineReasoning(engine, input.engine.model, input.engine.reasoningEffort,
+      catalog?.source === "live" ? catalog.models : undefined);
     const dir = root(request);
     const key = `${dir}:${request.params.teamId}`;
     const operation = (mutations.get(key) ?? Promise.resolve()).catch(() => undefined).then(async () => {
@@ -42,6 +45,11 @@ export const registerConversations = (server: FastifyInstance, root: (r: Fastify
       }
       const teams = new TeamService(dir);
       const team = await teams.load(request.params.teamId);
+      const existing = creating ? undefined : team.members.find((member) => member.id === request.params.memberId);
+      const unchangedUnverifiable = existing && engine.modelDiscovery === "dynamic" && catalog?.source !== "live"
+        && existing.engine.mode === "manual" && existing.engine.provider === input.engine.provider
+        && existing.engine.model === input.engine.model && existing.engine.reasoningEffort === input.engine.reasoningEffort;
+      if (!reasoning.ok && !unchangedUnverifiable) throw new ConversationError(reasoning.message);
       if (creating) {
         if (team.members.length >= 24) throw new ConversationError("A Team can contain up to 24 agents.");
         team.members.push(TeamMemberSchema.parse({ ...input, id: `member-${randomUUID()}`, isManager: false }));

@@ -57,6 +57,7 @@ if (args.includes("auth") && args.includes("status")) {
   process.stdout.write(JSON.stringify({ loggedIn, authMethod: "claude.ai", email: "someone@example.com" }));
   process.exit(0);
 }
+writeFileSync(path.join(process.cwd(), ".fake-launch-args.json"), JSON.stringify(args));
 
 const log = path.join(process.cwd(), ".fake-decisions.log");
 const outsideFile = path.resolve(process.cwd(), "..", "daycrew-fake-outside.txt");
@@ -438,6 +439,18 @@ describe("Claude Code resolved model", () => {
 });
 
 describe("ClaudeCodeProvider", () => {
+  it("passes a selected model and effort only to this agent's CLI session", async () => {
+    const scriptPath = await createFakeCli();
+    const workspace = await temporaryDirectory("daycrew-claude-effort-");
+    const provider = new ClaudeCodeProvider({ command: [process.execPath, scriptPath], allowedWorkspaceRoots: [workspace] });
+    const handle = await provider.startAgent({ ...spec(workspace), model: "claude-opus-4-7", reasoningEffort: "xhigh" });
+    const iterator = handle.events[Symbol.asyncIterator]();
+    await handle.send({ type: "goal", text: "plain-plan" });
+    await drain(iterator, isTurnBoundary);
+    await handle.stop();
+    const args = JSON.parse(await readFile(path.join(workspace, ".fake-launch-args.json"), "utf8")) as string[];
+    expect(args).toEqual(expect.arrayContaining(["--model", "claude-opus-4-7", "--effort", "xhigh"]));
+  });
   it("detects an authenticated CLI", async () => {
     const scriptPath = await createFakeCli();
     await expect(

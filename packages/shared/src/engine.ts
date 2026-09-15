@@ -30,6 +30,8 @@ export const EngineModelSchema = z
     id: ModelIdSchema,
     label: z.string().trim().min(1).max(120),
     description: z.string().max(300).optional(),
+    /** Exact per-model options reported by a CLI or verified in its official docs. */
+    reasoningEfforts: z.array(z.string().trim().min(1).max(24)).optional(),
   })
   .strict();
 export type EngineModel = z.infer<typeof EngineModelSchema>;
@@ -106,6 +108,9 @@ export const ENGINE_REGISTRY: readonly EngineDescriptor[] = [
       { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
       { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
       { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
+      { id: "claude-opus-4-7", label: "Claude Opus 4.7", reasoningEfforts: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "claude-opus-4-6", label: "Claude Opus 4.6", reasoningEfforts: ["low", "medium", "high", "max"] },
+      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", reasoningEfforts: ["low", "medium", "high", "max"] },
     ],
     capabilities: ["Workspace actions", "Approvals", "Session resume", "Skills"],
     limitations: ["Approved shell commands still run with the local user's permissions."],
@@ -119,7 +124,7 @@ export const ENGINE_REGISTRY: readonly EngineDescriptor[] = [
   },
   {
     id: "codex",
-    name: "Codex CLI",
+    name: "Codex CLI (OpenAI)",
     binary: "codex",
     kind: "cli",
     classification: "read-only-preview",
@@ -293,6 +298,22 @@ export const validateEngineModel = (
     ok: false,
     message: `${engine.name} does not support the model "${parsed.data}".${listed ? ` Choose one of: ${listed}.` : ""}`,
   };
+};
+
+/** An effort can only be saved when the exact selected model advertises it. */
+export const validateEngineReasoning = (
+  engine: EngineDescriptor,
+  model: string | undefined,
+  effort: string | undefined,
+  known?: readonly EngineModel[],
+): ModelValidation => {
+  if (effort === undefined) return { ok: true };
+  if (!model) return { ok: false, message: "Choose a specific model before setting reasoning effort." };
+  const descriptor = (known ?? engine.models).find((candidate) => candidate.id === model);
+  if (!descriptor?.reasoningEfforts?.includes(effort)) {
+    return { ok: false, message: `${engine.name} does not report ${effort} effort for ${model}. Choose a supported option or the engine default.` };
+  }
+  return { ok: true };
 };
 
 export const EngineModelCatalogSchema = z

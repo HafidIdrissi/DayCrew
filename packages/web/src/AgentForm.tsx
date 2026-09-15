@@ -29,8 +29,9 @@ const catalogNotice = (catalog: CatalogState): string | undefined => {
   return undefined;
 };
 
-export const AgentForm = ({ member, engines = [], detections = [], selectionId, onSave, onCancel }: {
+export const AgentForm = ({ member, teamId, engines = [], detections = [], selectionId, onSave, onCancel }: {
   member?: TeamMember;
+  teamId?: string;
   engines?: Engine[];
   detections?: EngineDetection[];
   selectionId?: string;
@@ -43,6 +44,7 @@ export const AgentForm = ({ member, engines = [], detections = [], selectionId, 
   const [provider, setProvider] = useState(member?.engine.mode === "manual" ? member.engine.provider ?? "claude-code" : "auto");
   // "" means "let the engine choose". An existing agent keeps the model it was saved with.
   const [model, setModel] = useState(member?.engine.mode === "manual" ? member.engine.model ?? "" : "");
+  const [reasoningEffort, setReasoningEffort] = useState(member?.engine.mode === "manual" ? member.engine.reasoningEffort ?? "" : "");
   const [customModel, setCustomModel] = useState(false);
   const [catalog, setCatalog] = useState<CatalogState>({ status: "idle" });
   const [busy, setBusy] = useState(false);
@@ -104,13 +106,18 @@ export const AgentForm = ({ member, engines = [], detections = [], selectionId, 
     if (pending.current) return;
     const missing = !name.trim() ? nameField : !role.trim() ? roleField : !instructions.trim() ? missionField : undefined;
     if (missing) { setError("Add a name, a role and instructions before saving."); missing.current?.focus(); return; }
+    if (reasoningEffort && !reasoningOptions.includes(reasoningEffort) && !unchangedUnverifiable) {
+      setError("The saved reasoning effort is not supported by this engine and model. Choose a supported level or the engine default.");
+      return;
+    }
     pending.current = true;
     setBusy(true); setError(undefined);
     try {
       await onSave({
         name: name.trim(), role: role.trim(), instructions: instructions.trim(),
         engine: manual
-          ? { mode: "manual", provider, ...(keepsModel && model.trim() ? { model: model.trim() } : {}) }
+          ? { mode: "manual", provider, ...(keepsModel && model.trim() ? { model: model.trim() } : {}),
+              ...(reasoningEffort ? { reasoningEffort } : {}) }
           : { mode: "auto" },
       });
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not save this agent. Your changes are still here."); }
@@ -121,6 +128,11 @@ export const AgentForm = ({ member, engines = [], detections = [], selectionId, 
   // A saved model that is no longer listed must stay visible instead of silently resetting.
   const unlisted = model !== "" && !customModel && !models.some((item) => item.id === model);
   const notice = catalogNotice(catalog);
+  const selectedModel = models.find((item) => item.id === model) ?? engine?.models.find((item) => item.id === model);
+  const reasoningOptions = selectedModel?.reasoningEfforts ?? [];
+  const incompatibleEffort = reasoningEffort !== "" && !reasoningOptions.includes(reasoningEffort);
+  const unchangedUnverifiable = incompatibleEffort && engine?.modelDiscovery === "dynamic" && (catalog.status !== "ready" || catalog.source !== "live")
+    && member?.engine.mode === "manual" && member.engine.provider === provider && member.engine.model === model && member.engine.reasoningEffort === reasoningEffort;
   return <section className="agent-editor" aria-label={member ? "Edit agent" : "Create agent"}>
     <header className="agent-editor-heading"><div><span className="agent-eyebrow">BUILD YOUR CREW</span><h1>{member ? "Edit your agent" : "A new teammate, ready to help."}</h1><p>Choose a specialty, describe the job, and make it yours.</p></div><button type="button" className="icon-button" onClick={onCancel} disabled={busy} aria-label="Close agent editor"><Icon name="close" size={20} /></button></header>
     <div className="agent-editor-layout">
@@ -133,18 +145,16 @@ export const AgentForm = ({ member, engines = [], detections = [], selectionId, 
       </aside>
       <form onSubmit={(event) => void submit(event)} aria-busy={busy}>
         <section className="agent-form-section" aria-labelledby="agent-identity-title">
-          <div className="agent-section-heading"><span>01</span><h2 id="agent-identity-title">Who is joining?</h2></div>
+          <div className="agent-section-heading"><span>01</span><h2 id="agent-identity-title">Identity & role</h2></div>
           <label>Name<input ref={nameField} name="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Alex" required maxLength={80} disabled={busy} autoFocus autoComplete="off" /></label>
           <div className="agent-role-options" role="group" aria-label="Role suggestions">{specialties.map((option) => <button type="button" key={option.role} aria-pressed={role === option.role} disabled={busy} onClick={() => chooseRole(option)}><span aria-hidden="true">{option.symbol}</span><strong>{option.role}</strong><small>{option.description}</small></button>)}</div>
           <label>Role<input ref={roleField} name="role" value={role} onChange={(event) => setRole(event.target.value)} placeholder="Choose above or enter a custom role" required maxLength={120} disabled={busy} /></label>
-        </section>
-        <section className="agent-form-section" aria-labelledby="agent-mission-title">
-          <div className="agent-section-heading"><span>02</span><h2 id="agent-mission-title">What should they do?</h2></div>
+          <h3 id="agent-mission-title">Working instructions</h3>
           <label>Instructions<textarea ref={missionField} name="instructions" value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Describe their responsibilities, your project conventions and the result you expect." required maxLength={20_000} disabled={busy} rows={5} /></label>
           <div className="agent-field-footer"><span>Role suggestions include an editable starting brief.</span>{template && !instructions.trim() && <button type="button" className="text-button" disabled={busy} onClick={() => setInstructions(template.mission)}>Use starting brief</button>}</div>
         </section>
         <section className="agent-form-section" aria-labelledby="agent-engine-title">
-          <div className="agent-section-heading"><span>03</span><h2 id="agent-engine-title">Choose an AI Engine</h2></div>
+          <div className="agent-section-heading"><span>02</span><h2 id="agent-engine-title">AI setup</h2></div>
           <label>AI Engine<select value={provider} onChange={(event) => chooseProvider(event.target.value)} disabled={busy}>
             <option value="auto">Auto · {autoEngine?.name ?? "Claude Code"} (recommended)</option>
             {engines.map((item) => <option key={item.id} value={item.id}>
@@ -175,8 +185,20 @@ export const AgentForm = ({ member, engines = [], detections = [], selectionId, 
             </p>
           </>}
           {manual && engine?.modelDiscovery === "unsupported" && <p className="agent-engine-hint">{engine.name} takes no model choice.</p>}
+          {manual && <label>Reasoning effort<select aria-describedby="agent-effort-hint" value={reasoningEffort} onChange={(event) => setReasoningEffort(event.target.value)} disabled={busy}>
+            <option value="">Engine default</option>
+            {incompatibleEffort && <option value={reasoningEffort} disabled>{reasoningEffort} (incompatible; choose again)</option>}
+            {reasoningOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select></label>}
+          {manual && <p className="agent-engine-hint" id="agent-effort-hint">{unchangedUnverifiable
+            ? "The catalogue is unavailable. Your existing effort remains saved, but its current account support is not verified. Refresh in Settings before changing it."
+            : incompatibleEffort
+            ? "This effort does not match the selected engine and model. Choose a supported level or Engine default before saving."
+            : reasoningOptions.length ? "Levels are reported for this exact model. They do not change permissions."
+              : "No verified effort options for this model. The engine uses its own default."}</p>}
           <details className="advanced-options"><summary>Model details</summary><p>{model.trim() ? `This agent runs ${engine?.binary ?? "the CLI"} with --model ${model.trim()}.` : "Uses whichever model the CLI is configured to use by default."} Earlier messages keep their original attribution.</p></details>
         </section>
+        <section className="agent-form-section" aria-labelledby="agent-skills-title"><div className="agent-section-heading"><span>03</span><h2 id="agent-skills-title">Skills & permissions</h2></div><p className="agent-engine-hint">Skills add instructions; the Team autonomy policy and engine safety boundary still control actions. Assign Skills after saving from the Team overview.</p>{teamId && <a className="secondary-button" href={`#teams/${teamId}/overview`}>Open Team Skills</a>}</section>
         {error && <p role="alert" className="inline-error">{error}</p>}
         <div className="chat-actions agent-save-actions"><Button type="button" variant="secondary" disabled={busy} onClick={onCancel}>Cancel</Button><Button disabled={busy}>{busy ? "Saving..." : member ? "Save changes" : "Add to the crew"}<Icon name="arrow" size={16} /></Button></div>
       </form>

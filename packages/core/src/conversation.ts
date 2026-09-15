@@ -92,6 +92,7 @@ export class ConversationService {
         sessionId: session.id, memberId: member.id, role: member.role, instructions: context.instructions,
         goal: text.trim(), workspacePath: chosen.workspacePath, mode: "conversation",
         ...(member.engine.model ? { model: member.engine.model } : {}),
+        ...(member.engine.reasoningEffort ? { reasoningEffort: member.engine.reasoningEffort } : {}),
       }), prompt, chosen).finally(() => { this.running.delete(key); });
       // A failed provider turn is represented by its persisted message, never an unhandled rejection.
       void turn.done.catch(() => undefined);

@@ -107,12 +107,13 @@ pnpm build:site   # static output in packages/site/dist
 
 | View | Route | What it does |
 |---|---|---|
-| Home | `#home` | Today's brief, Needs You highlights, team status, activity, and a composer to brief a Manager |
-| Team | `#teams` → `#teams/<id>` | Team list, Manager and Member conversations, `#teams/<id>/overview` for configuration and Skills |
+| HQ | `#home` | Living or Focus view of current Teams, real attention, activity, and a composer to brief a Manager |
+| Team | `#teams` → `#teams/<id>` | Discussion, Tasks, Deliverables, and Members; `#teams/<id>/overview` keeps configuration and Skills |
 | Tasks | `#tasks` | Board with filters; `#tasks/<session>/<task>` opens dependencies, handoffs, approvals, results, and history |
 | Needs You | `#needs-you` | Approvals, decisions, blockers, failed Tasks, and reviews, with actions wired to the local API |
+| Meetings | `#meetings` | Cross-team managers room preview; real meeting execution belongs to phase 2 |
 | Office | `#office` | Selectable Members with live state, engine, current Task, and pending decisions |
-| Skills | `#skills` | Workspace Skill library with capability checks and permanent assignment per Member |
+| Library | `#skills` | Workspace Skill library with capability checks and permanent assignment per Member |
 | Settings | `#settings` | Workspace, AI Engine readiness, default autonomy, extensions, diagnostics |
 
 Before contributing:

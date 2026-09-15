@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, detectEngines, listEngines, listTeams, requestJson, startGoal } from "./api";
-import { AppSidebar, Avatar, ConnectionStatus, Icon, NeedsYouBadge, WorkspaceSwitcher } from "./components";
+import { AppSidebar, Avatar, ConnectionStatus, Icon, NeedsYouBadge, TeamTabs, WorkspaceSwitcher } from "./components";
 import { Button, ErrorState, LoadingState } from "./ui";
 import { AgentForm } from "./AgentForm";
 import type { Engine, EngineDetection, GlobalNeedsYouItem, Team, TeamMember, Workspace } from "./types";
@@ -14,11 +14,12 @@ const engineName = (catalog: Engine[], id?: string) =>
 
 export { AgentForm } from "./AgentForm";
 
-export const ChatPage = ({ teamId, selectionId, onSwitchWorkspace, onWorkspaceIssue }: { teamId: string; selectionId: string; onSwitchWorkspace: () => void; onWorkspaceIssue: () => void }) => {
+export const ChatPage = ({ teamId, initialMemberId, selectionId, onSwitchWorkspace, onWorkspaceIssue }: { teamId: string; initialMemberId?: string; selectionId: string; onSwitchWorkspace: () => void; onWorkspaceIssue: () => void }) => {
   const [team, setTeam] = useState<Team>();
   const [teams, setTeams] = useState<Team[]>([]);
   const [workspace, setWorkspace] = useState<Workspace>();
   const [conversationId, setConversationId] = useState("channel");
+  useEffect(() => { if (initialMemberId) setConversationId(`dm-${initialMemberId}`); }, [initialMemberId]);
   const [conversation, setConversation] = useState<Conversation>();
   const [target, setTarget] = useState("");
   const [draft, setDraft] = useState("");
@@ -114,6 +115,7 @@ export const ChatPage = ({ teamId, selectionId, onSwitchWorkspace, onWorkspaceIs
   return <div className="app-frame"><AppSidebar activeView="Team" needsCount={needs.length} /><main className="app-main chat-main">
     <header className="top-bar"><WorkspaceSwitcher workspace={workspace} onSwitch={onSwitchWorkspace} /><div className="top-actions"><ConnectionStatus /><NeedsYouBadge count={needs.length} /></div></header>
     {savedAgent && <div className="chat-save-feedback" role="status"><Icon name="check" size={18} /><span><strong>{savedAgent.name}</strong> saved to your crew.</span><button type="button" className="text-button" onClick={() => { setConversationId(`dm-${savedAgent.id}`); setSavedAgent(undefined); }}>Open conversation</button><button type="button" className="icon-button" aria-label="Dismiss saved confirmation" onClick={() => setSavedAgent(undefined)}><Icon name="close" size={16} /></button></div>}
+    <TeamTabs teamId={teamId} active="Discussion" />
     <div className={`chat-workspace ${editing ? "chat-editing" : ""}`}>
       <aside className="conversation-rail" aria-label="Conversations">
         <label className="chat-team-select">Team<select value={teamId} onChange={(e) => { window.location.hash = `teams/${e.target.value}`; }}>{teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
@@ -142,7 +144,7 @@ export const ChatPage = ({ teamId, selectionId, onSwitchWorkspace, onWorkspaceIs
           <div className="chat-composer-footer"><small>Conversation history provides context · Ctrl / ⌘ + Enter to send</small><div>{channel && <Button type="button" variant="secondary" disabled={busy || responding || !draft.trim()} onClick={() => void launchGoal()}>Start Team Goal</Button>}{responding ? <Button type="button" variant="secondary" disabled={busy} onClick={() => void stop()}>Stop reply</Button> : <Button disabled={busy || !conversation || !draft.trim() || !engineReady || (preview && !previewConsent)}>{busy ? "Connecting…" : "Send message"}</Button>}</div></div>
         </form>
       </section>
-      {editing && <AgentForm key={editing === "new" ? "new" : editing.id} {...(editing === "new" ? {} : { member: editing })} engines={engineCatalog} detections={detections ?? []} selectionId={selectionId} onSave={saveAgent} onCancel={() => setEditing(undefined)} />}
+      {editing && <AgentForm key={editing === "new" ? "new" : editing.id} {...(editing === "new" ? {} : { member: editing })} teamId={teamId} engines={engineCatalog} detections={detections ?? []} selectionId={selectionId} onSave={saveAgent} onCancel={() => setEditing(undefined)} />}
     </div>
   </main></div>;
 };

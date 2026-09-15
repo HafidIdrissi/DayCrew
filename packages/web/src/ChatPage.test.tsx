@@ -13,7 +13,7 @@ const engine = (overrides: Partial<Engine> & Pick<Engine, "id" | "name">): Engin
   ...overrides,
 });
 const engines: Engine[] = [
-  engine({ id: "claude-code", name: "Claude Code", binary: "claude", autoEligible: true, models: [{ id: "sonnet", label: "Sonnet (alias)" }] }),
+  engine({ id: "claude-code", name: "Claude Code", binary: "claude", autoEligible: true, models: [{ id: "sonnet", label: "Sonnet (alias)" }, { id: "claude-opus-4-7", label: "Claude Opus 4.7", reasoningEfforts: ["low", "high", "xhigh"] }] }),
   engine({
     id: "cursor", name: "Cursor CLI", binary: "cursor-agent", classification: "read-only-preview",
     modelDiscovery: "dynamic", models: [],
@@ -36,6 +36,22 @@ const stubCatalog = (byEngine: Record<string, unknown>) => {
 };
 
 describe("Agent identity form", () => {
+  it("keeps identity and incompatible effort visible until the user chooses again", async () => {
+    stubCatalog({ "claude-code": new Error("catalog unavailable"), gemini: { engineId: "gemini", source: "catalog", allowsCustomModelId: false, models: [{ id: "pro", label: "Pro" }] } });
+    const save = vi.fn(async () => undefined);
+    render(<AgentForm engines={engines} selectionId="selection" onSave={save} onCancel={() => undefined}
+      member={{ id: "alex", name: "Alex", role: "Developer", instructions: "Preserve my brief.", isManager: false,
+        engine: { mode: "manual", provider: "claude-code", model: "claude-opus-4-7", reasoningEffort: "xhigh" } }} />);
+    expect((screen.getByRole("combobox", { name: "Reasoning effort" }) as HTMLSelectElement).value).toBe("xhigh");
+    fireEvent.change(screen.getByRole("combobox", { name: "AI Engine" }), { target: { value: "gemini" } });
+    expect(screen.getByText(/does not match the selected engine and model/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(save).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox", { name: "Instructions" }) as HTMLTextAreaElement).value).toBe("Preserve my brief.");
+    fireEvent.change(screen.getByRole("combobox", { name: "Reasoning effort" }), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ name: "Alex", role: "Developer", instructions: "Preserve my brief.", engine: { mode: "manual", provider: "gemini" } }));
+  });
   it("fills a starting brief without overwriting custom instructions", () => {
     render(<AgentForm onSave={async () => undefined} onCancel={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: /Developer/ }));

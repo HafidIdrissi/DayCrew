@@ -786,6 +786,7 @@ class ClaudeCodeAgentHandle implements AgentHandle {
         ? ["--strict-mcp-config"]
         : ["--strict-mcp-config", "--mcp-config", options.mcpConfig]),
       ...(spec.model === undefined ? [] : ["--model", spec.model]),
+      ...(spec.reasoningEffort === undefined ? [] : ["--effort", spec.reasoningEffort]),
       ...(this.claudeSessionId === undefined ? [] : ["--resume", this.claudeSessionId]),
     ];
 

@@ -358,7 +358,8 @@ class CodexAgentHandle implements AgentHandle {
     this.lastComplete = false;
     this.sawTurnCompletion = false;
     const prompt = this.promptFor(parsed);
-    const globalArguments = ["--sandbox", "read-only", "--ask-for-approval", "never"];
+    const globalArguments = ["--sandbox", "read-only", "--ask-for-approval", "never",
+      ...(this.spec.reasoningEffort === undefined ? [] : ["--config", `model_reasoning_effort=${this.spec.reasoningEffort}`])];
     const commonArguments = [
       "--json",
       "--skip-git-repo-check",
@@ -518,7 +519,14 @@ export class CodexProvider implements ProviderAdapter {
         ? model["display_name"]
         : slug;
       const description = typeof model["description"] === "string" ? model["description"].slice(0, 300) : undefined;
-      return [{ id: slug, label, ...(description === undefined ? {} : { description }) }];
+      const levels = Array.isArray(model["supported_reasoning_levels"])
+        ? model["supported_reasoning_levels"].flatMap((level: unknown) => {
+          const effort = objectValue(level)?.["effort"];
+          return typeof effort === "string" && ["minimal", "low", "medium", "high", "xhigh"].includes(effort) ? [effort] : [];
+        })
+        : [];
+      return [{ id: slug, label, ...(description === undefined ? {} : { description }),
+        ...(levels.length === 0 ? {} : { reasoningEfforts: levels }) }];
     });
   }
 

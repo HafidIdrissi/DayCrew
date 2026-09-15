@@ -1,6 +1,6 @@
-import { useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 
-import { connectionStore, type ConnectionState } from "./api";
+import { connectionStore, loadHome, type ConnectionState } from "./api";
 import { PixelAvatar, StatusMark, statusMeta } from "./avatar";
 import { activeTaskFor } from "./skillCatalog";
 import type {
@@ -9,6 +9,7 @@ import type {
   MemberSkill,
   MemberStatus,
   MissionIssue,
+  HomeData,
   NeedsYouItem,
   Skill,
   SkillCompatibility,
@@ -128,25 +129,49 @@ export const Avatar = ({ member, size = "md", status, showStatus }: {
 }) => <PixelAvatar member={member} size={size} {...(status ? { status } : {})} {...(showStatus ? { showStatus } : {})} />;
 
 export const NeedsYouBadge = ({ count }: { count: number }) => (
-  <a className={`needs-badge ${count === 0 ? "is-clear" : ""}`} href="#needs-you" aria-label={`${count} Needs You item${count === 1 ? "" : "s"}`}>
-    <Icon name={count === 0 ? "check" : "warning"} size={17} />
-    {count === 0 ? "All clear" : "Needs You"}
-    {count > 0 && <b>{count}</b>}
-  </a>
+  <GlobalNeedsYouBadge count={count} />
 );
+const NavigationHomeContext = createContext<HomeData | undefined>(undefined);
+
+/** Keep the global Needs You badge and Team rail on the same Workspace snapshot. */
+export const NavigationHomeProvider = ({ selectionId, children }: { selectionId: string; children: ReactNode }) => {
+  const [home, setHome] = useState<HomeData>();
+  useEffect(() => {
+    let active = true;
+    setHome(undefined);
+    const refresh = () => { void loadHome(selectionId).then((next) => { if (active) setHome(next); }).catch(() => undefined); };
+    refresh();
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 6_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [selectionId]);
+  return <NavigationHomeContext.Provider value={home}>{children}</NavigationHomeContext.Provider>;
+};
+
+const GlobalNeedsYouBadge = ({ count }: { count: number }) => {
+  const home = useContext(NavigationHomeContext);
+  const globalCount = home?.needsYou.count ?? count;
+  return <a className={`needs-badge ${globalCount === 0 ? "is-clear" : ""}`} href="#needs-you" aria-label={`${globalCount} Needs You item${globalCount === 1 ? "" : "s"}`}>
+    <Icon name={globalCount === 0 ? "check" : "warning"} size={17} />
+    {globalCount === 0 ? "All clear" : "Needs You"}
+    {globalCount > 0 && <b>{globalCount}</b>}
+  </a>;
+};
 export const MemberAvatar = Avatar;
+
+export const TeamTabs = ({ teamId, active }: { teamId: string; active: "Discussion" | "Tasks" | "Deliverables" | "Members" }) => <nav className="team-tabs" aria-label="Team sections">
+  {(["Discussion", "Tasks", "Deliverables", "Members"] as const).map((tab) => <a key={tab} href={`#teams/${teamId}${tab === "Discussion" ? "" : `/${tab.toLowerCase()}`}`} aria-current={active === tab ? "page" : undefined}>{tab}</a>)}
+</nav>;
 
 export const TeamCard = ({ team }: { team: Team }) => <a className="recent-workspace" href={`#teams/${team.id}`}><strong>{team.name}</strong><small>{team.members.length} {team.members.length === 1 ? "Member" : "Members"} · {team.description || "Ready for your next Goal"}</small><Icon name="arrow" size={16} /></a>;
 
-export type AppView = "Home" | "Team" | "Tasks" | "Needs You" | "Office" | "Skills" | "Settings";
+export type AppView = "Home" | "Team" | "Tasks" | "Needs You" | "Meetings" | "Office" | "Skills" | "Settings";
 
-const navItems: { label: Exclude<AppView, "Settings">; icon: IconName; href: string }[] = [
-  { label: "Home", icon: "home", href: "#home" },
-  { label: "Team", icon: "team", href: "#teams" },
-  { label: "Tasks", icon: "tasks", href: "#tasks" },
-  { label: "Needs You", icon: "warning", href: "#needs-you" },
-  { label: "Office", icon: "office", href: "#office" },
-  { label: "Skills", icon: "sparkle", href: "#skills" },
+const navItems: { label: AppView; title: string; icon: IconName; href: string }[] = [
+  { label: "Home", title: "HQ", icon: "home", href: "#home" },
+  { label: "Needs You", title: "Needs You", icon: "warning", href: "#needs-you" },
+  { label: "Tasks", title: "Tasks", icon: "tasks", href: "#tasks" },
+  { label: "Meetings", title: "Meetings", icon: "team", href: "#meetings" },
+  { label: "Skills", title: "Library", icon: "sparkle", href: "#skills" },
 ];
 
 export const useConnection = (): ConnectionState =>
@@ -160,34 +185,33 @@ export const ConnectionStatus = () => {
   return <span className="connection-status is-offline" role="alert"><i />Local service unreachable</span>;
 };
 
-export const AppSidebar = ({ needsCount, activeView = "Team" }: { needsCount: number; activeView?: AppView }) => (
-  <aside className="app-sidebar">
+export const AppSidebar = ({ needsCount, activeView = "Team" }: { needsCount: number; activeView?: AppView }) => {
+  const home = useContext(NavigationHomeContext);
+  const teams = home?.teams ?? [];
+  const globalNeedsCount = home?.needsYou.count ?? needsCount;
+  const [mobileOpen, setMobileOpen] = useState(false);
+  return <aside className={`app-sidebar ${mobileOpen ? "context-open" : ""}`}>
     <a className="skip-content" href="#main-content" onClick={(event) => { event.preventDefault(); const main = document.querySelector("main"); if (main) { main.tabIndex = -1; main.focus(); } }}>Skip to content</a>
-    <div className="brand-block">
-      <a className="brand" href="#home" aria-label="DayCrew Home">
-        <Icon name="logo" size={34} />
-        <span>DayCrew</span>
-      </a>
-      <p>Give a goal. Your crew plans, executes, and asks only for decisions.</p>
-    </div>
-    <nav className="primary-nav" aria-label="Primary navigation">
+    <div className="hq-global-rail"><a className="hq-mark" href="#home" aria-label="DayCrew HQ"><Icon name="logo" size={30} /></a>
+    <nav className="primary-nav" aria-label="Global navigation">
       {navItems.map((item) => (
-        <a className={item.label === activeView ? "active" : ""} href={item.href} key={item.label} aria-current={item.label === activeView ? "page" : undefined}>
-          <Icon name={item.icon} size={21} />
-          <span>{item.label}</span>
-          {item.label === "Needs You" && needsCount > 0 && <em aria-label={`${needsCount} pending`}>{needsCount}</em>}
+        <a className={item.label === activeView ? "active" : ""} href={item.href} key={item.label} title={item.title} aria-label={item.title} aria-current={item.label === activeView ? "page" : undefined}>
+          <Icon name={item.icon} size={22} />
+          <span className="sr-only">{item.title}</span>
+          {item.label === "Needs You" && globalNeedsCount > 0 && <em aria-label={`${globalNeedsCount} pending`}>{globalNeedsCount}</em>}
         </a>
       ))}
     </nav>
-    <div className="sidebar-lower">
-      <div className="contribute-card">
-        <Icon name="github" size={22} />
-        <div><strong>Open source</strong><a href="https://github.com/daycrew/daycrew/blob/main/CONTRIBUTING.md">Contribute on GitHub <Icon name="arrow" size={14} /></a></div>
-      </div>
-      <a className={`sidebar-settings ${activeView === "Settings" ? "active" : ""}`} href="#settings" aria-current={activeView === "Settings" ? "page" : undefined}><Icon name="settings" size={20} /><span>Settings</span></a>
+    <a className={`hq-rail-settings ${activeView === "Settings" ? "active" : ""}`} href="#settings" aria-label="Settings" title="Settings"><Icon name="settings" size={21} /></a></div>
+    <div className="hq-context-rail" id="hq-context-menu"><div className="hq-context-heading"><strong>DayCrew</strong><small>Your teams, one Workspace</small></div>
+      <nav aria-label="Team navigation" className="hq-team-nav"><div className="hq-team-heading"><span>TEAMS</span><a href="#teams" aria-label="Add team" title="Add team">+</a></div>
+        {teams.length === 0 && <p className="hq-no-teams">No teams yet. <a href="#teams">Create one</a></p>}
+        {teams.map((team) => <a key={team.id} href={`#teams/${team.id}`} className={window.location.hash.startsWith(`#teams/${team.id}`) ? "selected" : ""} onClick={() => setMobileOpen(false)}><span className="hq-team-avatar" aria-hidden="true">{team.name.trim().charAt(0).toUpperCase()}</span><span className="hq-team-text"><strong>{team.name}</strong><small>{team.status === "needs-you" ? "Needs You" : team.status === "working" ? "Working" : "Ready"}</small></span></a>)}
+      </nav><div className="hq-context-footer"><a href="#office"><Icon name="office" size={18} />Office view</a><a href="#teams"><Icon name="team" size={18} />All Teams</a></div>
     </div>
+    <button type="button" className="hq-mobile-teams" aria-expanded={mobileOpen} aria-controls="hq-context-menu" onClick={() => setMobileOpen((open) => !open)}><Icon name="team" size={18} /> Teams <Icon name="chevron" size={16} /></button>
   </aside>
-);
+};
 
 /** One frame for every working view: same sidebar, same Workspace line, same connection truth. */
 export const AppPage = ({ view, needsCount, workspace, onSwitchWorkspace, actions, children }: {

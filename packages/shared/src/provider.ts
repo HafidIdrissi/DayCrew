@@ -45,6 +45,7 @@ export const AgentSpecSchema = z
     goal: z.string().trim().min(1),
     workspacePath: z.string().trim().min(1),
     model: z.string().trim().min(1).optional(),
+    reasoningEffort: z.string().trim().min(1).max(24).optional(),
     mode: z.enum(["work", "conversation"]).optional(),
   })
   .strict();

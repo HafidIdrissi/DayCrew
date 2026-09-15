@@ -24,6 +24,7 @@ import {
   SkillDrawer,
   TeamHeader,
   TeamSummary,
+  TeamTabs,
   TopBar,
 } from "./components";
 import { activeTaskFor } from "./skillCatalog";
@@ -44,7 +45,7 @@ export const memberStatusMap = (data: TeamDashboardData): Map<string, MemberStat
 };
 
 const teamIdFromHash = (): string | undefined => {
-  const match = window.location.hash.match(/^#teams\/([a-z0-9_-]+)(?:\/overview)?$/);
+  const match = window.location.hash.match(/^#teams\/([a-z0-9_-]+)(?:\/(?:overview|tasks|deliverables|members))?$/);
   return match?.[1];
 };
 
@@ -183,6 +184,9 @@ export const TeamPage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }: {
     await startGoal(issue.teamId, issue.goal, selectionId);
     await refresh(true);
   };
+  const tab = window.location.hash.endsWith("/tasks") ? "Tasks" : window.location.hash.endsWith("/deliverables") ? "Deliverables" : "Members";
+  const legacyOverview = window.location.hash.endsWith("/overview");
+  const completedSessions = latestFirst(dashboard.sessions).filter((session) => session.status === "completed");
 
   return (
     <div className="app-frame">
@@ -193,9 +197,10 @@ export const TeamPage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }: {
           <div className="team-content">
             <a className="text-button" href={`#teams/${dashboard.team.id}`}>← Team conversations</a>
             <TeamHeader team={dashboard.team} activeCount={activeCount} needsCount={dashboard.needsYou.length} onOpenSkills={() => setDrawerOpen(true)} />
+            <TeamTabs teamId={dashboard.team.id} active={tab} />
             <MissionIssues issues={dashboard.missionIssues} onRetry={retryMission} />
             {dashboard.team.members.some((member) => member.engine.mode === "manual" && member.engine.provider === "demo") && <p className="demo-mode-banner"><strong>Demo Mode</strong> Deterministic simulated provider output — not real AI execution.</p>}
-            <TeamSummary team={dashboard.team} sessions={dashboard.sessions} tasks={dashboard.tasks} knowledge={dashboard.knowledge} needsYou={dashboard.needsYou} />
+            {(tab === "Members" || legacyOverview) && <><TeamSummary team={dashboard.team} sessions={dashboard.sessions} tasks={dashboard.tasks} knowledge={dashboard.knowledge} needsYou={dashboard.needsYou} />
             <ManagerComposer team={dashboard.team} {...(latestSession ? { session: latestSession } : {})} isSubmitting={isSubmitting} {...(composerError ? { error: composerError } : {})} onSubmit={startManagerGoal} />
             {manager && <ManagerCard member={manager} status={statusByMember.get(manager.id) ?? "idle"} skills={skillsFor(manager.id)} knowledgeCount={dashboard.knowledge.length} onAddSkill={() => openSkillsFor(manager.id)} />}
             <section className="members-section content-section">
@@ -204,9 +209,11 @@ export const TeamPage = ({ selectionId, onSwitchWorkspace, onWorkspaceIssue }: {
                 const currentTask = dashboard.tasks.find((task) => task.ownerId === member.id && task.status !== "done");
                 return <MemberCard key={member.id} member={member} status={statusByMember.get(member.id) ?? "idle"} skills={skillsFor(member.id)} {...(currentTask ? { currentTask } : {})} onAddSkill={() => openSkillsFor(member.id)} />;
               })}</div> : <div className="quiet-empty small"><p>{normalizedQuery ? "No team members match your search." : "This team has no specialist members yet."}</p></div>}
-            </section>
-            <HandoffTimeline tasks={visibleTasks} members={dashboard.team.members} />
-            <ActivityFeed activity={visibleActivity} members={dashboard.team.members} />
+            </section></>}
+            {(tab === "Tasks" || legacyOverview) && <><HandoffTimeline tasks={visibleTasks} members={dashboard.team.members} /><ActivityFeed activity={visibleActivity} members={dashboard.team.members} /></>}
+            {tab === "Deliverables" && <section className="team-deliverables content-section"><div className="section-heading"><h2>Recorded deliverables</h2><span>{completedSessions.length} completed Mission{completedSessions.length === 1 ? "" : "s"}</span></div>
+              {completedSessions.length ? completedSessions.map((session) => <article className="card-surface" key={session.id}><small>{new Date(session.completedAt ?? session.startedAt).toLocaleDateString()}</small><h3>{session.goal}</h3><p>{session.summary?.trim() || "Completed; no summary was recorded."}</p><div>{dashboard.tasks.filter((task) => task.sessionId === session.id && task.status === "done").map((task) => <a key={task.id} href={`#tasks/${session.id}/${task.id}`}>{task.title} ↗</a>)}</div></article>) : <div className="quiet-empty"><p>No completed Mission has a recorded result yet. Completed summaries and Tasks will appear here.</p></div>}
+            </section>}
           </div>
           {drawerMember && <SkillDrawer open={drawerOpen} team={dashboard.team} member={drawerMember} tasks={dashboard.tasks} library={dashboard.skills} assignments={skillStateFor(drawerMember.id)?.assignments ?? []} availability={skillStateFor(drawerMember.id)?.availability ?? []} recommendations={recommendations} onClose={() => setDrawerOpen(false)} onMemberChange={setDrawerMemberId} onAttach={attachSkill} onRemove={removeSkill} />}
         </div>

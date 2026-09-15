@@ -6,6 +6,7 @@ import {
   findEngine,
   readinessState,
   validateEngineModel,
+  validateEngineReasoning,
 } from "./engine.js";
 import { EngineSelectionSchema } from "./domain.js";
 
@@ -91,5 +92,17 @@ describe("AI Engine registry", () => {
     // An agent saved before model selection existed still loads.
     expect(EngineSelectionSchema.parse({ mode: "manual", provider: "codex" }).model).toBeUndefined();
     expect(EngineSelectionSchema.parse({ mode: "auto" })).toEqual({ mode: "auto" });
+  });
+
+  it("validates effort only for the exact model and keeps legacy engine records readable", () => {
+    const claude = findEngine("claude-code")!;
+    expect(validateEngineReasoning(claude, "claude-opus-4-7", "xhigh")).toEqual({ ok: true });
+    expect(validateEngineReasoning(claude, "claude-sonnet-4-6", "xhigh").ok).toBe(false);
+    expect(validateEngineReasoning(claude, "claude-custom", "high").ok).toBe(false);
+    expect(validateEngineReasoning(findEngine("gemini")!, "pro", "high").ok).toBe(false);
+    expect(validateEngineReasoning(findEngine("codex")!, "gpt-5.6-sol", "medium", [{ id: "gpt-5.6-sol", label: "Sol", reasoningEfforts: ["low", "medium"] }])).toEqual({ ok: true });
+    expect(validateEngineReasoning(findEngine("codex")!, "gpt-5.6-sol", "high", [{ id: "gpt-5.6-sol", label: "Sol", reasoningEfforts: ["low", "medium"] }]).ok).toBe(false);
+    expect(EngineSelectionSchema.parse({ mode: "manual", provider: "gemini", model: "pro" })).toEqual({ mode: "manual", provider: "gemini", model: "pro" });
+    expect(EngineSelectionSchema.parse({ mode: "manual", provider: "claude-code", model: "claude-opus-4-7", reasoningEffort: "xhigh" }).reasoningEffort).toBe("xhigh");
   });
 });

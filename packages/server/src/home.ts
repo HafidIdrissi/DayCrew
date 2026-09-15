@@ -17,10 +17,12 @@ export interface HomeTeamSummary {
   readonly name: string;
   readonly demoMode: boolean;
   readonly manager: { readonly id: string; readonly name: string };
+  readonly members: readonly { readonly id: string; readonly name: string; readonly role: string; readonly isManager: boolean }[];
   readonly workingMembers: number;
   readonly currentObjective?: string;
   readonly status: "working" | "needs-you" | "ready";
   readonly progress?: { readonly completed: number; readonly total: number };
+  readonly recentResult?: { readonly sessionId: string; readonly goal: string; readonly summary: string };
 }
 
 export interface HomeNeedsYouHighlight {
@@ -147,17 +149,20 @@ export const buildHomeData = async (workspaceRoot: string): Promise<HomeData> =>
     const teamNeeds = pendingNeeds.filter((item) => item.teamId === team.id).length;
     const completed = activeTasks.filter((task) => task.status === "done").length;
     const manager = team.members.find((member) => member.isManager)!;
+    const completedSession = teamSessions.find((session) => session.status === "completed" && session.summary?.trim());
     return {
       id: team.id,
       name: team.name,
       demoMode: team.members.some((member) => member.engine.mode === "manual" && member.engine.provider === "demo"),
       manager: { id: manager.id, name: manager.name },
+      members: team.members.map((member) => ({ id: member.id, name: member.name, role: member.role, isManager: member.isManager })),
       workingMembers: activeSession?.members.filter((member) => WORKING_MEMBER_STATUSES.has(member.status)).length ?? 0,
       ...(activeSession ? { currentObjective: activeSession.goal } : {}),
       status: teamNeeds > 0 || activeSession?.status === "waiting-for-human" || activeSession?.status === "waiting-for-you"
         ? "needs-you"
         : activeSession ? "working" : "ready",
       ...(activeTasks.length > 0 ? { progress: { completed, total: activeTasks.length } } : {}),
+      ...(completedSession ? { recentResult: { sessionId: completedSession.id, goal: completedSession.goal, summary: completedSession.summary!.trim() } } : {}),
     };
   });
 

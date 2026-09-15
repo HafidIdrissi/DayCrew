@@ -102,6 +102,13 @@ describe("Codex JSONL normalization", () => {
 });
 
 describe("CodexProvider", () => {
+  it("reads exact effort levels from the installed model catalogue without guessing from the name", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "daycrew-codex-models-")); directories.push(root);
+    const scriptPath = path.join(root, "fake-codex.mjs");
+    await writeFile(scriptPath, `const args = process.argv.slice(2); if (args[0] === "debug" && args[1] === "models") { process.stdout.write(JSON.stringify({ models: [{ slug: "gpt-test", display_name: "Test", supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }, { effort: "ultra" }] }] })); process.exit(0); } process.exit(1);`, "utf8");
+    const models = await new CodexProvider({ command: [process.execPath, scriptPath] }).listModels();
+    expect(models).toEqual([{ id: "gpt-test", label: "Test", reasoningEfforts: ["low", "high"] }]);
+  });
   it("detects an authenticated CLI and streams only normalized events", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "daycrew-codex-unit-"));
     directories.push(root);
@@ -213,7 +220,7 @@ process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tok
       command: [process.execPath, scriptPath],
       allowUnconfinedReads: true,
       allowedWorkspaceRoots: [root],
-    }).startAgent(spec(root));
+    }).startAgent({ ...spec(root), model: "gpt-5.6-sol", reasoningEffort: "medium" });
     await handle.send({ type: "goal", text: "Prepare the plan." });
     const iterator = handle.events[Symbol.asyncIterator]();
     while (true) {
@@ -225,6 +232,7 @@ process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tok
     const passed = JSON.parse(await readFile(argumentsPath, "utf8")) as string[];
     expect(passed.slice(0, 4)).toEqual(["--sandbox", "read-only", "--ask-for-approval", "never"]);
     expect(passed).toEqual(expect.arrayContaining(["--ignore-user-config", "--ignore-rules"]));
+    expect(passed).toEqual(expect.arrayContaining(["--model", "gpt-5.6-sol", "--config", "model_reasoning_effort=medium"]));
     for (const forbidden of [
       "--add-dir",
       "--search",

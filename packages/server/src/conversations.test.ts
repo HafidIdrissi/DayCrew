@@ -32,6 +32,35 @@ const waitReply = async (server: ReturnType<typeof buildServer>, id: string, sta
 };
 
 describe("Team conversations", () => {
+  it("persists two agents on one engine with isolated models and efforts and forwards each choice", async () => {
+    const claude = new MockProvider({ id: "claude-code", script: [
+      [{ type: "text", text: "Manager answer" }, { type: "done" }],
+      [{ type: "text", text: "Specialist answer" }, { type: "done" }],
+    ] });
+    const { root, server } = await fixture([claude]);
+    const managerValue = { name: "Alex", role: "Manager", instructions: "Coordinate", engine: { mode: "manual", provider: "claude-code", model: "claude-opus-4-7", reasoningEffort: "xhigh" } };
+    expect((await server.inject({ method: "PATCH", url: "/api/teams/crew/members/manager", payload: managerValue })).statusCode).toBe(200);
+    const specialistValue = { name: "Maya", role: "Researcher", instructions: "Research", engine: { mode: "manual", provider: "claude-code", model: "claude-sonnet-4-6", reasoningEffort: "low" } };
+    const added = await server.inject({ method: "POST", url: "/api/teams/crew/members", payload: specialistValue });
+    expect(added.statusCode).toBe(200);
+    const specialistId = added.json().members.at(-1).id as string;
+    await server.inject({ method: "POST", url: `${base}/dm-manager/messages`, payload: { text: "Plan" } });
+    await waitReply(server, "dm-manager");
+    await server.inject({ method: "POST", url: `${base}/dm-${specialistId}/messages`, payload: { text: "Research" } });
+    await waitReply(server, `dm-${specialistId}`);
+    expect(claude.specs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ memberId: "manager", model: "claude-opus-4-7", reasoningEffort: "xhigh" }),
+      expect.objectContaining({ memberId: specialistId, model: "claude-sonnet-4-6", reasoningEffort: "low" }),
+    ]));
+    await server.close();
+    const reopened = buildServer({ workspaceRoot: root, appConfigDir: path.join(root, "config") }); servers.push(reopened);
+    const restored = (await reopened.inject({ method: "GET", url: "/api/teams/crew" })).json().team.members;
+    expect(restored.find((member: { id: string }) => member.id === "manager").engine).toEqual(managerValue.engine);
+    expect(restored.find((member: { id: string }) => member.id === specialistId).engine).toEqual(specialistValue.engine);
+    const incompatible = await reopened.inject({ method: "PATCH", url: `/api/teams/crew/members/${specialistId}`, payload: { ...specialistValue, engine: { mode: "manual", provider: "gemini", model: "pro", reasoningEffort: "low" } } });
+    expect(incompatible.statusCode).toBe(409);
+    expect((await reopened.inject({ method: "GET", url: "/api/teams/crew" })).json().team.members.find((member: { id: string }) => member.id === specialistId).engine).toEqual(specialistValue.engine);
+  });
   it("routes private messages and targeted channel replies to each Member's engine with persisted follow-up context", async () => {
     const claude = new MockProvider({ id: "claude-code", script: [[{ type: "text", text: "Alex reply" }, { type: "done" }]] });
     const codex = new MockProvider({ id: "codex", script: [[{ type: "text", text: "Sam reply" }, { type: "done" }]] });

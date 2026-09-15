@@ -30,6 +30,7 @@ export const EngineSelectionSchema = z
     mode: z.enum(["auto", "manual"]).default("auto"),
     provider: IdSchema.optional(),
     model: ModelIdSchema.optional(),
+    reasoningEffort: z.string().trim().min(1).max(24).optional(),
   })
   .strict()
   .superRefine((selection, context) => {

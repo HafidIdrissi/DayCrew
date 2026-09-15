@@ -2,6 +2,7 @@ export type EngineSelection = {
   mode: "auto" | "manual";
   provider?: string;
   model?: string;
+  reasoningEffort?: string;
 };
 
 export type Workspace = {
@@ -235,10 +236,12 @@ export type HomeData = {
     name: string;
     demoMode: boolean;
     manager: { id: string; name: string };
+    members: Array<{ id: string; name: string; role: string; isManager: boolean }>;
     workingMembers: number;
     currentObjective?: string;
     status: "working" | "needs-you" | "ready";
     progress?: { completed: number; total: number };
+    recentResult?: { sessionId: string; goal: string; summary: string };
   }>;
   recentActivity: Array<{
     id: string;
@@ -395,7 +398,7 @@ export type EngineDetection = {
   message: string;
 };
 
-export type EngineModel = { id: string; label: string; description?: string };
+export type EngineModel = { id: string; label: string; description?: string; reasoningEfforts?: string[] };
 
 export type EngineSetup = {
   install: { platform: string; command: string }[];
